@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const port = 3000;
+const port = 3001;
 const cors = require('cors');
 const axios = require('axios');
 
@@ -9,7 +9,7 @@ app.use(cors()); // app 정의 바로 다음에 추가
 app.use(express.json()) // 프론트에서 주는 데이터 읽기 위해
 
 // DB ngrok 주소
-const YERIN_SERVER_URL = 'https://len-untoppable-mavis.ngrok-free.dev';
+const YERIN_SERVER_URL = 'http://localhost:3000';
 
 // 프로필 색상코드
 const colorPalette = {
