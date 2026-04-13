@@ -11,12 +11,56 @@ app.use(express.json()) // 프론트에서 주는 데이터 읽기 위해
 // DB ngrok 주소
 const YERIN_SERVER_URL = 'https://len-untoppable-mavis.ngrok-free.dev';
 
+// 프로필 색상코드
+const colorPalette = {
+    'red': '#F6796E',
+    'orange': '#FFAA46',
+    'yellow': '#FFD66D',
+    'green': '#C7DA80'
+};
+
+
 
 // 서버가 켜졌을 때 보여줄 첫 화면 (기본 주소)
 app.get('/', (req, res) => {
     res.send('갈래말래 백엔드 서버가 시작되었습니다!');
 });
 
+
+
+app.get('/api/user/profile/:uid', async (req, res) => {
+    const { uid } = req.params;
+    
+    try {
+        // 1. 주소 뒤에 UID를 붙이지 않고 깔끔하게 /api/user/me 로 보냅니다.
+        const response = await axios.get(`${YERIN_SERVER_URL}/api/user/me`, {
+            headers: {
+                'uid': uid, // 보안을 위해 헤더 주머니에 UID 삽입.
+                'ngrok-skip-browser-warning': '69420' // ngrok 하이패스권
+            }
+        });
+        
+        const dbData = response.data; 
+        
+        // 예린이 데이터에서 색상 키 추출 (author 없이 평평한 구조 기준)
+        const colorKey = dbData.color || dbData.current_color;
+
+        const processedData = {
+            ...dbData,
+            colorCode: colorPalette[colorKey] || '#C7DA80'
+        };
+
+        console.log(`[헤더인증 연동] UID ${uid} 데이터 수신 성공`);
+        res.json(processedData);
+
+    } catch (err) {
+        console.error('연결 에러:', err.message);
+        res.status(500).json({ 
+            error: 'DB 서버 연동 실패', 
+            details: 'DB 서버에서 해당 UID의 헤더를 읽지 못했을 수 있습니다.' 
+        });
+    }
+});
 
 
 // 예린이 서버에서 받아오기
@@ -68,6 +112,7 @@ app.get('/api/posts', async (req, res) => {
         res.status(500).json({ error: '목록을 가져올 수 없습니다.' });
     }
 });
+
 
 
 // 서버 실행 함수

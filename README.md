@@ -9,3 +9,9 @@
 
 host: '이부분'
 https:// << 이거 빼고 적기
+
+3. git commit 하기
+
+git add .
+git commit -m "UI 디자인 수정 및 버튼 추가"
+git push origin 내브랜치이름
