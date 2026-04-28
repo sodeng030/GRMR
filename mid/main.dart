@@ -1,0 +1,41 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
+import 'login_screen.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      
+      theme: ThemeData(
+        fontFamily: 'Paperlogy',
+        scaffoldBackgroundColor: Colors.white,
+        
+        // 팁: 테마를 설정해두면 모든 화면의 글자색을 한 번에 제어하기 좋습니다.
+        // textTheme: const TextTheme(
+        //   bodyMedium: TextStyle(color: Color(0xFF331F07)),
+        // ),
+      ),
+      
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ko', 'KR'),
+      ],
+      
+      home: const LoginScreen(), 
+    );
+  }
+}
