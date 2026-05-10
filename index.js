@@ -59,8 +59,48 @@ app.get('/api/user/profile/:uid', async (req, res) => {
     }
 });
 
+// 장소 검색 API (네이버 지도 좌표 추출용)
+app.get('/api/map/search', async (req, res) => {
+    const { query } = req.query; 
 
-// 참가가 API
+    if (!query) {
+        return res.status(400).json({ error: '검색어를 입력해주세요.' });
+    }
+
+    try {
+        const response = await axios.get('https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode', {
+            params: { query },
+            headers: {
+                'cxm3n7ljxs',
+                'ts3Iw20w12gG5Ym8tBJelqqMUgJj46Swi28UCLMa'
+            }
+        });
+
+        // 네이버가 준 데이터가 있는지 확인
+        if (response.data.addresses && response.data.addresses.length > 0) {
+            const firstResult = response.data.addresses[0]; 
+            
+            // 위도 경도 골라내기기
+            const processedData = {
+                address: firstResult.roadAddress || firstResult.jibunAddress, // 주소
+                lat: firstResult.y, // 위도
+                lng: firstResult.x  // 경도
+            };
+
+            console.log(`[지도 검색 성공] ${query} -> lat: ${processedData.lat}, lng: ${processedData.lng}`);
+            res.json(processedData);
+        } else {
+            res.status(404).json({ message: '검색 결과가 없습니다.' });
+        }
+
+    } catch (err) {
+        console.error('지도 검색 실패:', err.message);
+        res.status(500).json({ error: '지도 정보를 가져오지 못했습니다.' });
+    }
+});
+
+
+// 게시글 참가 API
 app.post('/api/posts/:post_id/join', async (req, res) => {
     const { post_id } = req.params;
     const { uid } = req.body; 
