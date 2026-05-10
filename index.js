@@ -5,11 +5,11 @@ const cors = require('cors');
 const axios = require('axios');
 
 
-app.use(cors()); // app 정의 바로 다음에 추가
-app.use(express.json()) // 프론트에서 주는 데이터 읽기 위해
+app.use(cors());
+app.use(express.json())
 
-// DB ngrok 주소
-const YERIN_SERVER_URL = 'http://localhost:3000';
+// DB 주소소
+const DB_SERVER_URL = 'http://localhost:3000';
 
 // 프로필 색상코드
 const colorPalette = {
@@ -21,28 +21,25 @@ const colorPalette = {
 
 
 
-// 서버가 켜졌을 때 보여줄 첫 화면 (기본 주소)
+// 서버 시작
 app.get('/', (req, res) => {
     res.send('갈래말래 백엔드 서버가 시작되었습니다!');
 });
 
 
-
+// uid/프로필 불러오는 API
 app.get('/api/user/profile/:uid', async (req, res) => {
     const { uid } = req.params;
     
     try {
-        // 1. 주소 뒤에 UID를 붙이지 않고 깔끔하게 /api/user/me 로 보냅니다.
-        const response = await axios.get(`${YERIN_SERVER_URL}/api/user/me`, {
+        const response = await axios.get(`${DB_SERVER_URL}/api/user/me`, {
             headers: {
-                'uid': uid, // 보안을 위해 헤더 주머니에 UID 삽입.
-                'ngrok-skip-browser-warning': '69420' // ngrok 하이패스권
+                'uid': uid,
             }
         });
         
         const dbData = response.data; 
         
-        // 예린이 데이터에서 색상 키 추출 (author 없이 평평한 구조 기준)
         const colorKey = dbData.color || dbData.current_color;
 
         const processedData = {
@@ -63,18 +60,44 @@ app.get('/api/user/profile/:uid', async (req, res) => {
 });
 
 
-// 예린이 서버에서 받아오기
+// 참가가 API
+app.post('/api/posts/:post_id/join', async (req, res) => {
+    const { post_id } = req.params;
+    const { uid } = req.body; 
+
+    if (!uid || !post_id) {
+        return res.status(400).json({ error: '사용자 ID(uid) 또는 게시글 ID(post_id)가 누락되었습니다.' });
+    }
+
+    try {
+        const response = await axios.post(`${DB_SERVER_URL}/api/posts/${post_id}/join`, {
+            uid: uid
+        });
+
+        console.log(`[신청 성공] URL: /api/posts/${post_id}/join | User: ${uid}`);
+        res.json({
+            success: true,
+            message: '참여 신청이 완료되었습니다.',
+            data: response.data
+        });
+
+    } catch (err) {
+        console.error('신청 처리 중 에러 발생:', err.message);
+        const errMsg = err.response?.data?.message || 'DB 서버 연동 중 오류가 발생했습니다.';
+        res.status(500).json({ error: '신청 실패', details: errMsg });
+    }
+});
+
+
+// title 받아오는 API
 app.get('/api/titles', async (req, res) => {
-    // 1. 채연이(프론트)가 보낸 카테고리 값을 가져옵니다 (예: '식사' 또는 '취미')
     const category = req.query.category; 
 
     try {
-        // 2. 예린이 서버 주소 뒤에 쿼리스트링(?category=...)을 붙여서 요청합니다.
-        const response = await axios.get(`${YERIN_SERVER_URL}/api/titles`, {
-            params: { category: category } // 이렇게 넣으면 자동으로 ?category=식사 가 붙어요!
+        const response = await axios.get(`${DB_SERVER_URL}/api/titles`, {
+            params: { category: category }
         });
 
-        // 3. 예린이 서버가 준 타이틀 리스트를 그대로 전달!
         console.log(`[${category}] 타이틀 목록 불러오기 성공`);
         res.json(response.data);
         
@@ -85,11 +108,10 @@ app.get('/api/titles', async (req, res) => {
 });
 
 
-// 게시글 생성 (민서님 데이터 구조 그대로 DB에 저장)
+// 게시글 생성 API
 app.post('/api/posts', async (req, res) => {
     try {
-        // 4. 내가 받은 데이터를 그대로 예린이 서버로 토스합니다.
-        const response = await axios.post(`${YERIN_SERVER_URL}/api/posts`, req.body);
+        const response = await axios.post(`${DB_SERVER_URL}/api/posts`, req.body);
         res.status(201).json(response.data);
     } catch (err) {
         console.error('게시글 저장 실패:', err.message);
@@ -98,13 +120,11 @@ app.post('/api/posts', async (req, res) => {
 });
 
 
-// 게시글 전체 조회 API (예린이 서버에서 목록 가져오기)
+// 게시글 전체 조회 API
 app.get('/api/posts', async (req, res) => {
     try {
-        // 예린이 서버에 "게시글 목록 줘!"라고 요청
-        const response = await axios.get(`${YERIN_SERVER_URL}/api/posts`);
+        const response = await axios.get(`${DB_SERVER_URL}/api/posts`);
         
-        // 받은 데이터를 그대로 민서 서버를 거쳐 채연이에게 전달
         console.log("게시글 목록 불러오기 성공");
         res.json(response.data);
     } catch (err) {
@@ -112,7 +132,6 @@ app.get('/api/posts', async (req, res) => {
         res.status(500).json({ error: '목록을 가져올 수 없습니다.' });
     }
 });
-
 
 
 // 서버 실행 함수
