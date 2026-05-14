@@ -59,6 +59,7 @@ app.get('/api/user/profile/:uid', async (req, res) => {
     }
 });
 
+
 // 장소 검색 API (네이버 지도 좌표 추출용)
 app.get('/api/map/search', async (req, res) => {
     const { query } = req.query; 
@@ -71,8 +72,8 @@ app.get('/api/map/search', async (req, res) => {
         const response = await axios.get('https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode', {
             params: { query },
             headers: {
-                'X-NCP-APIGW-API-KEY-ID': 'cxm3n7ljxs',
-                'X-NCP-APIGW-API-KEY': 'ts3Iw20w12gG5Ym8tBJelqqMUgJj46Swi28UCLMa'
+                'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
+                'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
             }
         });
 
@@ -172,6 +173,125 @@ app.get('/api/posts', async (req, res) => {
         res.status(500).json({ error: '목록을 가져올 수 없습니다.' });
     }
 });
+
+
+// 현재 진행 중인 약속 조회 (상단 배너용)
+app.get('/api/appointments/active', async (req, res) => {
+    const uid = req.headers['uid'];
+
+    if (!uid) {
+        return res.status(401).json({ error: '인증 정보(uid)가 필요합니다.' });
+    }
+
+    try {
+        const userRes = await axios.get(`${DB_SERVER_URL}/api/user/me`, {
+            headers: { 'uid': uid }
+        });
+        
+        const userAppointments = userRes.data.appointmentId || [];
+
+        // NULL 체크
+        if (userAppointments.length === 0) {
+            return res.json({ hasActiveMeeting: false });
+        }
+
+        const postsRes = await axios.get(`${DB_SERVER_URL}/api/posts/list`, {
+            params: { ids: userAppointments.join(',') }
+        });
+        
+        const allPosts = postsRes.data;
+
+        // 현재 시간보다 나중이면서 가장 빠른 약속 찾기 (target_date + target_time 조합)
+        const now = new Date();
+        const futureAppointments = allPosts
+            .map(post => ({
+                ...post,
+                fullDateTime: new Date(`${post.target_date}T${post.target_time}`)
+            }))
+            .filter(post => post.fullDateTime > now) // 현재보다 미래인 약속만
+            .sort((a, b) => a.fullDateTime - b.fullDateTime); // 가장 빠른 순 정렬
+
+        if (futureAppointments.length === 0) {
+            return res.json({ hasActiveMeeting: false });
+        }
+
+        const targetPost = futureAppointments[0];
+        const participants = [targetPost.c_uid, targetPost.a1_uid, targetPost.a2_uid, targetPost.a3_uid].filter(id => id);
+
+        
+        const statesRes = await axios.post(`${DB_SERVER_URL}/api/users/states`, {
+            uids: participants
+        });
+        
+        const userStates = statesRes.data;
+
+        // 상태별 카운트
+        const counts = { ready: 0, departure: 0, arrival: 0 };
+        participants.forEach(pUid => {
+            const state = userStates[pUid] || 'ready'; // 기본값은 ready
+            if (counts[state] !== undefined) counts[state]++;
+        });
+
+        res.json({
+            hasActiveMeeting: true,
+            appointmentId: targetPost.id,
+            title: targetPost.title,
+            readyCount: counts.ready,
+            departureCount: counts.departure,
+            arrivalCount: counts.arrival
+        });
+
+    } catch (err) {
+        console.error('배너 정보 조회 실패:', err.message);
+        res.status(500).json({ error: '데이터 처리 중 오류가 발생했습니다.' });
+    }
+});
+
+
+// 내 상태 변경 API (배너의 준비/출발/도착 버튼 클릭 시)
+app.post('/api/appointments/status', async (req, res) => {
+    const { uid, appointmentId, newStatus } = req.body;
+
+    if (!uid || !appointmentId || !newStatus) {
+        return res.status(400).json({ 
+            error: '필수 데이터가 누락되었습니다.', 
+            details: '{ uid, appointmentId, newStatus }가 모두 필요합니다.' 
+        });
+    }
+
+    const validStatuses = ['ready', 'departure', 'arrival']; // 준비, 출발, 도착
+    if (!validStatuses.includes(newStatus)) {
+        return res.status(400).json({ 
+            error: '잘못된 상태값입니다.', 
+            details: 'ready, departure, arrival 중 하나여야 합니다.' 
+        });
+    }
+
+    try {
+        const response = await axios.post(`${DB_SERVER_URL}/api/appointments/status`, {
+            uid,
+            appointmentId,
+            newStatus
+        });
+
+        console.log(`[상태 변경 성공] UID: ${uid} | AppID: ${appointmentId} | Status: ${newStatus}`);
+        
+        res.json({
+            success: true,
+            message: `상태가 '${newStatus}'(으)로 변경되었습니다.`,
+            data: response.data
+        });
+
+    } catch (err) {
+        console.error('상태 변경 중 연동 에러:', err.message);
+        res.status(500).json({ 
+            error: '상태 업데이트 실패', 
+            details: err.response?.data?.message || 'DB 서버 연결에 문제가 발생했습니다.' 
+        });
+    }
+});
+
+
 
 
 // 서버 실행 함수
