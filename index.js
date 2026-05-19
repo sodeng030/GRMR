@@ -95,7 +95,7 @@ app.get('/api/map/search', async (req, res) => {
         }
 
     } catch (err) {
-        console.error('지도 검색 실패:', err.message);
+        console.error('지도 검색 실패:', err.response ? err.response.data : err.message);
         res.status(500).json({ error: '지도 정보를 가져오지 못했습니다.' });
     }
 });
@@ -292,6 +292,38 @@ app.post('/api/appointments/status', async (req, res) => {
 });
 
 
+// 회원 탈퇴 API
+app.delete('/api/user/profile', async (req, res) => {
+    const uid = req.headers['uid'];
+
+    if (!uid) {
+        return res.status(400).json({ error: '사용자 ID(uid)가 누락되었습니다.' });
+    }
+
+    try {
+        // DB에 삭제 요청
+        const response = await axios.delete(`${DB_SERVER_URL}/api/user/profile`, {
+        headers: { 'uid': uid }
+        });
+
+        console.log(`[회원 탈퇴 성공] UID: ${uid} | 관련 데이터 영구 삭제됨`);
+
+        res.json({
+            success: true,
+            message: '회원 탈퇴가 완료되었습니다. 모든 개인 데이터가 삭제되었습니다.',
+            data: response.data
+        });
+
+    } catch (err) {
+        console.error('회원 탈퇴 처리 중 에러 발생:', err.message);
+        const errMsg = err.response?.data?.message || 'DB 서버 연동 중 오류가 발생했습니다.';
+        
+        res.status(500).json({ 
+            error: '탈퇴 처리 실패', 
+            details: errMsg 
+        });
+    }
+});
 
 
 // 서버 실행 함수
