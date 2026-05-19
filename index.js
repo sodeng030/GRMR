@@ -69,7 +69,7 @@ app.get('/api/map/search', async (req, res) => {
     }
 
     try {
-        const response = await axios.get('https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode', {
+        const response = await axios.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
             params: { query },
             headers: {
                 'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
