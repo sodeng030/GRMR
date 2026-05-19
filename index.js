@@ -76,27 +76,36 @@ app.get('/api/map/search', async (req, res) => {
                 'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
             }
         });
+        
+        console.log("[네이버 API 응답 원본]:", JSON.stringify(response.data, null, 2));
 
-        // 네이버가 준 데이터가 있는지 확인
-        if (response.data.addresses && response.data.addresses.length > 0) {
-            const firstResult = response.data.addresses[0]; 
+        const addresses = response.data.addresses;
+        
+        if (addresses && addresses.length > 0) {
+            const firstResult = addresses[0]; 
             
-            // 위도 경도 골라내기기
             const processedData = {
-                address: firstResult.roadAddress || firstResult.jibunAddress, // 주소
-                lat: firstResult.y, // 위도
-                lng: firstResult.x  // 경도
+                address: firstResult.roadAddress || firstResult.jibunAddress || query, 
+                lat: firstResult.y, 
+                lng: firstResult.x  
             };
 
-            console.log(`[지도 검색 성공] ${query} -> lat: ${processedData.lat}, lng: ${processedData.lng}`);
-            res.json(processedData);
+            console.log(`[지도 검색 최종 성공] -> lat: ${processedData.lat}, lng: ${processedData.lng}`);
+            return res.json(processedData);
         } else {
-            res.status(404).json({ message: '검색 결과가 없습니다.' });
+            // 주소 결과 자체가 진짜 빈 배열인 경우
+            return res.status(404).json({ 
+                message: '네이버 검색 결과가 없습니다.', 
+                debug_meta: response.data.meta
+            });
         }
 
     } catch (err) {
-        console.error('지도 검색 실패:', err.response ? err.response.data : err.message);
-        res.status(500).json({ error: '지도 정보를 가져오지 못했습니다.' });
+        console.error('지도 검색 API 통신 실패:', err.message);
+        return res.status(500).json({ 
+            error: '지도 정보를 가져오지 못했습니다.',
+            details: err.response?.data || err.message
+        });
     }
 });
 
