@@ -59,49 +59,66 @@ app.get('/api/user/profile/:uid', async (req, res) => {
     }
 });
 
-
-// 장소 검색 API (네이버 지도 좌표 추출용)
-app.get('/api/map/search', async (req, res) => {
-    const { query } = req.query; 
+// 통합 장소 검색 API
+app.get('/api/map/search/place', async (req, res) => {
+    const { query } = req.query;
 
     if (!query) {
         return res.status(400).json({ error: '검색어를 입력해주세요.' });
     }
 
     try {
-        const response = await axios.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
-            params: { query },
+        const searchResponse = await axios.get('https://openapi.naver.com/v1/search/local.json', {
+            params: { 
+                query: query, 
+                display: 1
+            }, 
             headers: {
-                'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
-                'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
+                'X-Naver-Client-Id': 'nmatxOMlsM9Y4bzebIuG', 
+                'X-Naver-Client-Secret': 'yThjq9bf9T'
             }
         });
-        
-        console.log("[네이버 API 응답 원본]:", JSON.stringify(response.data, null, 2));
 
-        const addresses = response.data.addresses;
-        
+        const items = searchResponse.data.items;
+
+        if (!items || items.length === 0) {
+            return res.status(404).json({ message: '검색 결과가 없습니다.' });
+        }
+
+        const targetPlace = items[0];
+
+        const realAddress = targetPlace.roadAddress || targetPlace.address;
+        const cleanTitle = targetPlace.title.replace(/<[^>]*>?/g, ''); 
+
+        const mapResponse = await axios.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
+            params: { query: realAddress },
+            headers: {
+                'X-NCP-APIGW-API-KEY-ID': 'xgr6cv8jes',
+                'X-NCP-APIGW-API-KEY': 'UeSnKuLCLtprjEoCYvP8RhFqr6nT0viQ3f9RuqER'
+            }
+        });
+
+        const addresses = mapResponse.data.addresses;
+
         if (addresses && addresses.length > 0) {
-            const firstResult = addresses[0]; 
-            
+            const geoResult = addresses[0];
+
+
             const processedData = {
-                address: firstResult.roadAddress || firstResult.jibunAddress || query, 
-                lat: firstResult.y, 
-                lng: firstResult.x  
+                placeName: cleanTitle,                          // 장소 이름
+                address: geoResult.roadAddress || realAddress,  // 실제 도로명 주소
+                lat: geoResult.y,                               // 위도
+                lng: geoResult.x                                // 경도
             };
 
-            console.log(`[지도 검색 최종 성공] -> lat: ${processedData.lat}, lng: ${processedData.lng}`);
+            console.log(`[통합 장소검색 성공] 키워드: ${query} -> 주소 변환: ${processedData.address}`);
             return res.json(processedData);
         } else {
-            // 주소 결과 자체가 진짜 빈 배열인 경우
-            return res.status(404).json({ 
-                message: '네이버 검색 결과가 없습니다.', 
-                debug_meta: response.data.meta
-            });
+            return res.status(404).json({ message: '장소의 좌표 정보가 존재하지 않습니다.' });
         }
 
     } catch (err) {
-        console.error('지도 검색 API 통신 실패:', err.message);
+        console.error('통합 장소 검색 에러:', err.message);
         return res.status(500).json({ 
             error: '지도 정보를 가져오지 못했습니다.',
             details: err.response?.data || err.message
