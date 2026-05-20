@@ -59,6 +59,7 @@ app.get('/api/user/profile/:uid', async (req, res) => {
     }
 });
 
+
 // 통합 장소 검색 API
 app.get('/api/map/search/place', async (req, res) => {
     const { query } = req.query;
@@ -68,33 +69,43 @@ app.get('/api/map/search/place', async (req, res) => {
     }
 
     try {
-        const searchResponse = await axios.get('https://openapi.naver.com/v1/search/local.json', {
-            params: { 
-                query: query, 
-                display: 1
-            }, 
-            headers: {
-                'X-Naver-Client-Id': 'nmatxOMlsM9Y4bzebIuG', 
-                'X-Naver-Client-Secret': 'yThjq9bf9T'
+        let realAddress = query;
+        let cleanTitle = query;
+
+        const isAddress = /시|도|구|동|로|길|번지/.test(query);
+
+        if (!isAddress) {
+            console.log(`[NCP Search] 건물명 검색 시도: ${query}`);
+            
+            const searchResponse = await axios.get('https://naveropenapi.apigw.ntruss.com/map-place/v1/search', {
+                params: { 
+                    query: query, 
+                    coordinate: '127.0460720,37.2833808'
+                }, 
+                headers: {
+                    'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
+                    'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
+                }
+            });
+
+            const places = searchResponse.data.places;
+
+            if (places && places.length > 0) {
+                const targetPlace = places[0];
+                realAddress = targetPlace.roadAddress || targetPlace.address;
+                cleanTitle = targetPlace.name; 
+            } else {
+                return res.status(404).json({ message: '검색 결과가 없습니다.' });
             }
-        });
-
-        const items = searchResponse.data.items;
-
-        if (!items || items.length === 0) {
-            return res.status(404).json({ message: '검색 결과가 없습니다.' });
+        } else {
+            console.log(`[NCP Geocoding] 주소 직접 검색 시도: ${query}`);
         }
-
-        const targetPlace = items[0];
-
-        const realAddress = targetPlace.roadAddress || targetPlace.address;
-        const cleanTitle = targetPlace.title.replace(/<[^>]*>?/g, ''); 
 
         const mapResponse = await axios.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
             params: { query: realAddress },
             headers: {
-                'X-NCP-APIGW-API-KEY-ID': 'xgr6cv8jes',
-                'X-NCP-APIGW-API-KEY': 'UeSnKuLCLtprjEoCYvP8RhFqr6nT0viQ3f9RuqER'
+                'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
+                'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
             }
         });
 
@@ -103,22 +114,21 @@ app.get('/api/map/search/place', async (req, res) => {
         if (addresses && addresses.length > 0) {
             const geoResult = addresses[0];
 
-
             const processedData = {
-                placeName: cleanTitle,                          // 장소 이름
-                address: geoResult.roadAddress || realAddress,  // 실제 도로명 주소
-                lat: geoResult.y,                               // 위도
-                lng: geoResult.x                                // 경도
+                placeName: cleanTitle,
+                address: geoResult.roadAddress || realAddress,
+                lat: geoResult.y, 
+                lng: geoResult.x  
             };
 
-            console.log(`[통합 장소검색 성공] 키워드: ${query} -> 주소 변환: ${processedData.address}`);
+            console.log(`[통합 검색 성공] ${query} -> lat: ${processedData.lat}, lng: ${processedData.lng}`);
             return res.json(processedData);
         } else {
             return res.status(404).json({ message: '장소의 좌표 정보가 존재하지 않습니다.' });
         }
 
     } catch (err) {
-        console.error('통합 장소 검색 에러:', err.message);
+        console.error('통합 검색 에러:', err.message);
         return res.status(500).json({ 
             error: '지도 정보를 가져오지 못했습니다.',
             details: err.response?.data || err.message
@@ -183,6 +193,50 @@ app.post('/api/posts', async (req, res) => {
     } catch (err) {
         console.error('게시글 저장 실패:', err.message);
         res.status(500).json({ error: '데이터 저장에 실패했습니다.' });
+    }
+});
+
+
+// 게시글 삭제 API
+app.delete('/api/posts/:id', async (req, res) => {
+    const postId = req.params.id;         
+    const userUid = req.headers['uid'];   
+
+    if (!postId) {
+        return res.status(400).json({ error: '삭제할 게시글 ID가 필요합니다.' });
+    }
+    if (!userUid) {
+        return res.status(401).json({ error: '인증되지 않은 사용자입니다. (uid 누락)' });
+    }
+
+    try {
+        const [post] = await db.query('SELECT uid FROM posts WHERE id = ?', [postId]);
+        
+        if (post.length === 0) {
+            return res.status(404).json({ message: '존재하지 않거나 이미 삭제된 게시글입니다.' });
+        }
+
+        if (post[0].uid !== userUid) {
+            console.log(`[권한 오류] 삭제 거부 -> 유저: ${userUid}, 글ID: ${postId}`);
+            return res.status(403).json({ error: '본인이 작성한 글만 삭제할 수 있습니다.' });
+        }
+
+
+        const [result] = await db.query('DELETE FROM posts WHERE id = ?', [postId]);
+
+        if (result.affectedRows > 0) {
+            console.log(`[삭제 성공] 글 ID: ${postId} | 작성자 uid: ${userUid}`);
+            return res.status(200).json({ message: '게시글이 성공적으로 삭제되었습니다.' });
+        } else {
+            return res.status(500).json({ error: '게시글 삭제에 실패했습니다.' });
+        }
+
+    } catch (err) {
+        console.error('게시글 삭제 API 에러:', err.message);
+        return res.status(500).json({ 
+            error: '서버 내부 오류로 게시글을 삭제하지 못했습니다.',
+            details: err.message 
+        });
     }
 });
 
