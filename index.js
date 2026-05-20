@@ -75,25 +75,22 @@ app.get('/api/map/search/place', async (req, res) => {
         const isAddress = /시|도|구|동|로|길|번지/.test(query);
 
         if (!isAddress) {
-            console.log(`[NCP Search] 건물명 검색 시도: ${query}`);
+            console.log(`[Developers 검색] 건물명 검색 시도: ${query}`);
             
-            const searchResponse = await axios.get('https://maps.apigw.ntruss.com/map-place/v1/search', {
-                params: { 
-                    query: query, 
-                    coordinate: '127.0460720,37.2833808'
-                }, 
+            const searchResponse = await axios.get('https://openapi.naver.com/v1/search/local.json', {
+                params: { query: query, display: 1 }, 
                 headers: {
-                    'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
-                    'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
+                    'X-Naver-Client-Id': 'nmatxOMlsM9Y4bzebIuG', 
+                    'X-Naver-Client-Secret': 'yThjq9bf9T'
                 }
             });
 
-            const places = searchResponse.data.places;
+            const items = searchResponse.data.items;
 
-            if (places && places.length > 0) {
-                const targetPlace = places[0];
+            if (items && items.length > 0) {
+                const targetPlace = items[0];
                 realAddress = targetPlace.roadAddress || targetPlace.address;
-                cleanTitle = targetPlace.name; 
+                cleanTitle = targetPlace.title.replace(/<[^>]*>?/g, '');
             } else {
                 return res.status(404).json({ message: '검색 결과가 없습니다.' });
             }
