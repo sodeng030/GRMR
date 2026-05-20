@@ -77,7 +77,7 @@ app.get('/api/map/search/place', async (req, res) => {
         if (!isAddress) {
             console.log(`[NCP Search] 건물명 검색 시도: ${query}`);
             
-            const searchResponse = await axios.get('https://naveropenapi.apigw.ntruss.com/map-place/v1/search', {
+            const searchResponse = await axios.get('https://maps.apigw.ntruss.com/map-place/v1/search', {
                 params: { 
                     query: query, 
                     coordinate: '127.0460720,37.2833808'
