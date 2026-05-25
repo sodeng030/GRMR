@@ -343,8 +343,8 @@ app.get('/api/posts', async (req, res) => {
         posts = posts.filter(post => post.state === 'active');
 
         let userGender = 'all';
-        if (rawGender === '여') userGender = 'female';
-        else if (rawGender === '남') userGender = 'male';
+        if (rawGender === '여성') userGender = 'female';
+        else if (rawGender === '남성') userGender = 'male';
 
         if (sortBy === 'distance' && lat && lng) {
             posts = posts.map(post => {
