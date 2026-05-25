@@ -397,6 +397,49 @@ app.get('/api/posts', async (req, res) => {
 });
 
 
+// 보관함 api
+app.get('/api/user/bookmarks', async (req, res) => {
+    const uid = req.headers['uid'];
+    const { state } = req.query; 
+
+    if (!uid) {
+        return res.status(400).json({ success: false, message: 'uid가 없습니다.' });
+    }
+
+    try {
+        console.log(`[보관함 요청 중계] UID: ${uid}, 요청탭: ${state || '전체'}`);
+
+        const dbStateParam = (state === 'joined') ? 'active' : state;
+
+        const response = await axios.get(`${DB_SERVER_URL}/api/user/bookmarks`, {
+            params: { state: dbStateParam },
+            headers: { 'uid': uid }
+        });
+
+        let posts = response.data.posts;
+
+        if (state === 'active') {
+            posts = posts.filter(post => post.c_uid === uid);
+        } 
+        else if (state === 'joined') {
+            posts = posts.filter(post => post.c_uid !== uid);
+        }
+
+        return res.json({ success: true, posts: posts });
+
+    } catch (err) {
+        console.error('보관함 조회 중계 에러:', err.message);
+        const statusCode = err.response?.status || 500;
+        const errMsg = err.response?.data?.message || '보관함 목록을 불러오는 중 오류가 발생했습니다.';
+        
+        return res.status(statusCode).json({ 
+            success: false, 
+            message: errMsg 
+        });
+    }
+});
+
+
 // 현재 진행 중인 약속 조회 (상단 배너용)
 app.get('/api/appointments/active', async (req, res) => {
     const uid = req.headers['uid'];
