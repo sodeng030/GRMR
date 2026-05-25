@@ -377,6 +377,46 @@ app.post('/api/appointments/status', async (req, res) => {
 });
 
 
+// 프로필 태그 API
+app.put('/api/user/profile/tags', async (req, res) => {
+    const uid = req.headers['uid'];
+    const { tags } = req.body;
+
+    if (!uid) {
+        return res.status(401).json({ error: '인증되지 않은 사용자입니다. (uid 누락)' });
+    }
+    if (!tags || !Array.isArray(tags)) {
+        return res.status(400).json({ error: 'tags 데이터가 올바른 배열 형식이 아닙니다.' });
+    }
+
+    try {
+        const response = await axios.put(`${DB_SERVER_URL}/api/user/profile/tags`, 
+            { tags: tags },
+            { headers: { 'uid': uid } }
+        );
+
+        console.log(`[태그 업데이트 연동 성공] UID: ${uid} | 새 태그: ${tags.join(', ')}`);
+        
+        return res.status(200).json({
+            success: true,
+            message: '태그가 성공적으로 업데이트되었습니다.',
+            data: response.data
+        });
+
+    } catch (err) {
+        console.error('태그 업데이트 연동 에러:', err.message);
+        
+        const statusCode = err.response?.status || 500;
+        const errMsg = err.response?.data?.error || err.response?.data?.message || 'DB 서버 통신 중 오류가 발생했습니다.';
+        
+        return res.status(statusCode).json({ 
+            error: '태그 업데이트에 실패했습니다.',
+            details: errMsg 
+        });
+    }
+});
+
+
 // 회원 탈퇴 API
 app.delete('/api/user/profile', async (req, res) => {
     const uid = req.headers['uid'];
