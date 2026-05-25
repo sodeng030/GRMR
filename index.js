@@ -319,7 +319,7 @@ app.post('/api/posts/:id/cancel', async (req, res) => {
         });
         return res.json(response.data);
     } catch (err) {
-        console.error('신청 취소 브릿지 에러:', err.message);
+        console.error('신청 취소 에러:', err.message);
         const statusCode = err.response?.status || 500;
         return res.status(statusCode).json({ success: false, message: '신청 취소 실패' });
     }
@@ -438,44 +438,34 @@ app.get('/api/user/bookmarks', async (req, res) => {
 
         console.log(`📢 [백엔드 데이터 검증] 예린이가 준 총 데이터 수: ${allPosts.length}개`);
 
-        if (state === 'active') {
-            finalPosts = allPosts.filter(post => {
-                if (!post.date || !post.time) return false;
-                const [year, month, day] = post.date.split('-').map(Number);
-                const [hour, min, sec] = post.time.split(':').map(Number);
-                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
+        const dynamicStatePosts = allPosts.map(post => {
+            if (!post.date || !post.time) return post;
 
-                const isOver = appointmentTime < now;
-                return !isOver && String(post.c_uid) === String(uid);
-            });
+            const [year, month, day] = post.date.split('-').map(Number);
+            const [hour, min, sec] = post.time.split(':').map(Number);
+            const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
+
+            const isOver = appointmentTime < now;
+        
+            const realState = (post.state === 'completed' || isOver) ? 'completed' : 'active';
+
+            return { 
+                ...post, 
+                state: realState 
+            };
+        });
+
+        if (state === 'active') {
+            finalPosts = dynamicStatePosts.filter(post => post.state !== 'completed' && String(post.c_uid) === String(uid));
         } 
         else if (state === 'joined') {
-            finalPosts = allPosts.filter(post => {
-                if (!post.date || !post.time) return false;
-                const [year, month, day] = post.date.split('-').map(Number);
-                const [hour, min, sec] = post.time.split(':').map(Number);
-                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
-
-                const isOver = appointmentTime < now;
-                return !isOver && String(post.c_uid) !== String(uid);
-            });
+            finalPosts = dynamicStatePosts.filter(post => post.state !== 'completed' && String(post.c_uid) !== String(uid));
         } 
         else if (state === 'completed') {
-            finalPosts = allPosts.filter(post => {
-                if (!post.date || !post.time) return false;
-                const [year, month, day] = post.date.split('-').map(Number);
-                const [hour, min, sec] = post.time.split(':').map(Number);
-                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
-
-                const isOver = appointmentTime < now;
-                
-                console.log(`[완료 판별] 제목: ${post.title} | 약속시간: ${appointmentTime.toLocaleString()} | 현재시간: ${now.toLocaleString()} -> 만료여부: ${isOver}`);
-                
-                return isOver;
-            });
+            finalPosts = dynamicStatePosts.filter(post => post.state === 'completed');
         } 
         else {
-            finalPosts = allPosts;
+            finalPosts = dynamicStatePosts;
         }
 
         console.log(`[보관함 필터 완료] 반환 데이터 수: ${finalPosts.length}개`);
