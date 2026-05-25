@@ -360,9 +360,10 @@ app.get('/api/posts', async (req, res) => {
 
         posts = posts.filter(post => post.state === 'active');
 
-        let userGender = 'all';
-        if (rawGender === '여성') userGender = 'female';
-        else if (rawGender === '남성') userGender = 'male';
+        let userGender = '전체';
+        if (rawGender === '여성' || rawGender === '남성') {
+            userGender = rawGender;
+        }
 
         if (sortBy === 'distance' && lat && lng) {
             posts = posts.map(post => {
@@ -378,9 +379,9 @@ app.get('/api/posts', async (req, res) => {
 
             if (genderFirst === 'true' || genderFirst === true) {
                 const getGenderScore = (post) => {
-                    if (post.gender_filter === userGender) return 2;
-                    if (post.gender_filter === 'all') return 1;
-                    return 0;
+                    if (post.gender_filter === userGender) return 2; 
+                    if (post.gender_filter === '전체') return 1;     
+                    return 0;                                       
                 };
 
                 const scoreA = getGenderScore(a);
