@@ -416,14 +416,25 @@ app.get('/api/user/bookmarks', async (req, res) => {
         const allPosts = response.data.posts || [];
         let finalPosts = [];
 
+        const now = new Date(); 
+
         if (state === 'active') {
-            finalPosts = allPosts.filter(post => post.state === 'active' && String(post.c_uid) === String(uid));
+            finalPosts = allPosts.filter(post => {
+                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                return !isOver && String(post.c_uid) === String(uid);
+            });
         } 
         else if (state === 'joined') {
-            finalPosts = allPosts.filter(post => post.state === 'active' && String(post.c_uid) !== String(uid));
+            finalPosts = allPosts.filter(post => {
+                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                return !isOver && String(post.c_uid) !== String(uid);
+            });
         } 
         else if (state === 'completed') {
-            finalPosts = allPosts.filter(post => post.state === 'completed');
+            finalPosts = allPosts.filter(post => {
+                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                return isOver;
+            });
         } 
         else {
             finalPosts = allPosts;
