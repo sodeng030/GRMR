@@ -449,6 +449,35 @@ app.post('/api/users/states', async (req, res) => {
     }
 });
 
+// [유저 평점 업가데이트 API]
+app.put('/api/user/profile/:targetUid/rating', async (req, res) => {
+    const { targetUid } = req.params;
+    const { uid, rating } = req.body;
+
+    if (rating < 0 || rating > 5) {
+        return res.status(400).json({ success: false, message: '평점은 0~5 사이여야 합니다.' });
+    }
+
+    try {
+        // 평가받는 유저 존재 확인
+        const [target] = await db.query("SELECT rating FROM users WHERE uid = ?", [targetUid]);
+        if (target.length === 0) return res.status(404).json({ success: false, message: '유저를 찾을 수 없습니다.' });
+
+        // 평점 업데이트 (기존 평점과 새 평점 평균)
+        const currentRating = target[0].rating || 0;
+        const newRating = currentRating === 0 
+            ? rating.toFixed(1) 
+            : ((currentRating + rating) / 2).toFixed(1);
+
+        await db.query("UPDATE users SET rating = ? WHERE uid = ?", [newRating, targetUid]);
+
+        res.json({ success: true, message: '평점 업데이트 완료', rating: newRating });
+    } catch (error) {
+        console.error("평점 업데이트 에러:", error);
+        res.status(500).json({ success: false, message: '서버 에러' });
+    }
+});
+
 const PORT = 3000;
 server.listen(PORT, () => {
     console.log(`${PORT}번 포트에서 서버가 정상 가동 중입니다.`);
