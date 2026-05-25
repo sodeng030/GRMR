@@ -163,7 +163,7 @@ app.get('/api/map/reverse-geocode', async (req, res) => {
     try {
         console.log(`[reverse-geocode] 주소 변환 시도: lat=${lat}, lng=${lng}`);
 
-        const mapResponse = await axios.get('https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc', {
+        const mapResponse = await axios.get('https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc', {
             params: {
                 coords: `${lng},${lat}`,
                 orders: 'roadaddr,addr',
@@ -407,7 +407,7 @@ app.get('/api/user/bookmarks', async (req, res) => {
     }
 
     try {
-        console.log(`[보관함 요청 중계] UID: ${uid}, 요청탭: ${state || '전체'}`);
+        console.log(`[보관함 요청] UID: ${uid}, 요청탭: ${state || '전체'}`);
 
         const dbStateParam = (state === 'joined') ? 'active' : state;
 
@@ -428,7 +428,7 @@ app.get('/api/user/bookmarks', async (req, res) => {
         return res.json({ success: true, posts: posts });
 
     } catch (err) {
-        console.error('보관함 조회 중계 에러:', err.message);
+        console.error('보관함 조회 에러:', err.message);
         const statusCode = err.response?.status || 500;
         const errMsg = err.response?.data?.message || '보관함 목록을 불러오는 중 오류가 발생했습니다.';
         
