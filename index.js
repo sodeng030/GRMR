@@ -331,66 +331,20 @@ app.get('/api/appointments/active', async (req, res) => {
     }
 
     try {
-        const userRes = await axios.get(`${DB_SERVER_URL}/api/user/me`, {
+        const response = await axios.get(`${DB_SERVER_URL}/api/appointments/active`, {
             headers: { 'uid': uid }
         });
         
-        const userAppointments = userRes.data.appointmentId || [];
-
-        // NULL 체크
-        if (userAppointments.length === 0) {
-            return res.json({ hasActiveMeeting: false });
-        }
-
-        const postsRes = await axios.get(`${DB_SERVER_URL}/api/posts/list`, {
-            params: { ids: userAppointments.join(',') }
-        });
-        
-        const allPosts = postsRes.data;
-
-        // 현재 시간보다 나중이면서 가장 빠른 약속 찾기 (target_date + target_time 조합)
-        const now = new Date();
-        const futureAppointments = allPosts
-            .map(post => ({
-                ...post,
-                fullDateTime: new Date(`${post.target_date}T${post.target_time}`)
-            }))
-            .filter(post => post.fullDateTime > now) // 현재보다 미래인 약속만
-            .sort((a, b) => a.fullDateTime - b.fullDateTime); // 가장 빠른 순 정렬
-
-        if (futureAppointments.length === 0) {
-            return res.json({ hasActiveMeeting: false });
-        }
-
-        const targetPost = futureAppointments[0];
-        const participants = [targetPost.c_uid, targetPost.a1_uid, targetPost.a2_uid, targetPost.a3_uid].filter(id => id);
-
-        
-        const statesRes = await axios.post(`${DB_SERVER_URL}/api/users/states`, {
-            uids: participants
-        });
-        
-        const userStates = statesRes.data;
-
-        // 상태별 카운트
-        const counts = { ready: 0, departure: 0, arrival: 0 };
-        participants.forEach(pUid => {
-            const state = userStates[pUid] || 'ready'; // 기본값은 ready
-            if (counts[state] !== undefined) counts[state]++;
-        });
-
-        res.json({
-            hasActiveMeeting: true,
-            appointmentId: targetPost.id,
-            title: targetPost.title,
-            readyCount: counts.ready,
-            departureCount: counts.departure,
-            arrivalCount: counts.arrival
-        });
+        console.log(`[배너 조회 연동 성공] UID: ${uid}`);
+        return res.json(response.data);
 
     } catch (err) {
         console.error('배너 정보 조회 실패:', err.message);
-        res.status(500).json({ error: '데이터 처리 중 오류가 발생했습니다.' });
+        const statusCode = err.response?.status || 500;
+        return res.status(statusCode).json({ 
+            error: '배너 데이터를 가져오지 못했습니다.',
+            details: err.response?.data || err.message 
+        });
     }
 });
 
