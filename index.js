@@ -152,6 +152,68 @@ app.get('/api/map/search/place', async (req, res) => {
 });
 
 
+// 위도/경도 -> 주소 변환 API
+app.get('/api/map/reverse-geocode', async (req, res) => {
+    const { lat, lng } = req.query;
+
+    if (!lat || !lng) {
+        return res.status(400).json({ error: '위도(lat)와 경도(lng) 파라미터가 필요합니다.' });
+    }
+
+    try {
+        console.log(`[reverse-geocode] 주소 변환 시도: lat=${lat}, lng=${lng}`);
+
+        const mapResponse = await axios.get('https://naveropenapi.apigw.ntruss.com/map-reversegeocode/v2/gc', {
+            params: {
+                coords: `${lng},${lat}`,
+                orders: 'roadaddr,addr',
+                output: 'json'
+            },
+            headers: {
+                'X-NCP-APIGW-API-KEY-ID': '7wk3yroi5c',
+                'X-NCP-APIGW-API-KEY': 'sMbqk6hKGgcu4yuhdHkGrZ0xN8y8sxf26b5aA2Gv'
+            }
+        });
+
+        const results = mapResponse.data.results;
+
+        if (!results || results.length === 0) {
+            return res.status(404).json({ message: '해당 좌표에 대한 주소 정보를 찾을 수 없습니다.' });
+        }
+
+        const region = results[0].region;
+        const land = results[0].land;
+        
+        let fullAddress = `${region.area1.name} ${region.area2.name} ${region.area3.name}`;
+        
+        if (land && land.name) {
+            fullAddress += ` ${land.name} ${land.number1}`;
+            if (land.number2) fullAddress += `-${land.number2}`;
+        }
+        else if (land && land.number1) {
+            fullAddress += ` ${land.number1}`;
+            if (land.number2) fullAddress += `-${land.number2}`;
+        }
+
+        const processedData = {
+            address: fullAddress.trim(),
+            lat: parseFloat(lat),
+            lng: parseFloat(lng)
+        };
+
+        console.log(`[reverse-geocode] 변환 완료 -> ${processedData.address}`);
+        return res.json(processedData);
+
+    } catch (err) {
+        console.error('리버스 지오코딩 에러:', err.message);
+        return res.status(500).json({ 
+            error: '좌표를 주소로 변환하지 못했습니다.',
+            details: err.response?.data || err.message
+        });
+    }
+});
+
+
 // 게시글 참가 API
 app.post('/api/posts/:post_id/join', async (req, res) => {
     const { post_id } = req.params;
