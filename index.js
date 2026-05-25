@@ -308,16 +308,89 @@ app.delete('/api/posts/:id', async (req, res) => {
 });
 
 
-// 게시글 전체 조회 API
+// 위도/경도로 두 지점 사이의 직선거리 계산 함수
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    
+    const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; 
+}
+
+
+// 게시글 전체 조회 및 필터링 API
 app.get('/api/posts', async (req, res) => {
+    const queryParams = req.query; 
+    const { sortBy, genderFirst, lat, lng } = req.query;
+    const uid = req.headers['uid']; 
+
     try {
-        const response = await axios.get(`${DB_SERVER_URL}/api/posts`);
-        
-        console.log("게시글 목록 불러오기 성공");
-        res.json(response.data);
+        console.log(`[게시글 목록 요청] 필터조건: ${JSON.stringify(queryParams)}, 요청UID: ${uid}`);
+
+        const [postsRes, userRes] = await Promise.all([
+            axios.get(`${DB_SERVER_URL}/api/posts`),
+            axios.get(`${DB_SERVER_URL}/api/user/me`, { headers: { uid } })
+        ]);
+
+        let posts = postsRes.data;
+        const rawGender = userRes.data.gender;
+
+        let userGender = 'all';
+        if (rawGender === '여') userGender = 'female';
+        else if (rawGender === '남') userGender = 'male';
+
+        if (sortBy === 'distance' && lat && lng) {
+            posts = posts.map(post => {
+                const postLat = parseFloat(post.lat || post.latitude || 0);
+                const postLng = parseFloat(post.lng || post.longitude || 0);
+                
+                const distance = getDistance(parseFloat(lat), parseFloat(lng), postLat, postLng);
+                return { ...post, calculated_distance: distance };
+            });
+        }
+
+        posts.sort((a, b) => {
+
+            if (genderFirst === 'true' || genderFirst === true) {
+                const aMatch = (a.gender_filter === userGender || a.gender_filter === 'all');
+                const bMatch = (b.gender_filter === userGender || b.gender_filter === 'all');
+                
+                if (aMatch && !bMatch) return -1; 
+                if (!aMatch && bMatch) return 1;  
+            }
+
+
+            if (sortBy === 'time') {
+                const timeA = new Date(`${a.target_date} ${a.target_time}`);
+                const timeB = new Date(`${b.target_date} ${b.target_time}`);
+                if (timeA.getTime() !== timeB.getTime()) {
+                    return timeA - timeB;
+                }
+            } 
+            else if (sortBy === 'distance' && lat && lng) {
+                if (a.calculated_distance !== b.calculated_distance) {
+                    return a.calculated_distance - b.calculated_distance;
+                }
+            }
+            return b.id - a.id; 
+        });
+
+        return res.status(200).json(posts);
+
     } catch (err) {
-        console.error('게시글 목록 불러오기 실패:', err.message);
-        res.status(500).json({ error: '목록을 가져올 수 없습니다.' });
+        console.error('게시글 필터링 조회 에러:', err.message);
+        const statusCode = err.response?.status || 500;
+        const errMsg = err.response?.data?.error || '게시글 목록을 불러오는 중 오류가 발생했습니다.';
+        
+        return res.status(statusCode).json({ 
+            error: errMsg,
+            details: err.message 
+        });
     }
 });
 
@@ -428,6 +501,38 @@ app.put('/api/user/profile/:targetUid/rating', async (req, res) => {
         return res.status(statusCode).json({ 
             error: '평가 업데이트에 실패했습니다.',
             details: errMsg 
+        });
+    }
+});
+
+
+// 카카오 로그인 및 회원가입 API
+app.post('/api/user/login', async (req, res) => {
+    const { uid, nickname } = req.body;
+
+    if (!uid) {
+        return res.status(400).json({ error: '카카오 고유 ID(uid)가 누락되었습니다.' });
+    }
+
+    try {
+        console.log(`[로그인 요청 수신] uid: ${uid}, nickname: ${nickname}`);
+
+        const response = await axios.post(`${DB_SERVER_URL}/api/user/login`, {
+            uid: uid,
+            nickname: nickname
+        });
+
+        return res.status(response.status).json(response.data);
+
+    } catch (err) {
+        console.error('카카오 로그인 에러:', err.message);
+        
+        const statusCode = err.response?.status || 500;
+        const errMsg = err.response?.data?.error || '로그인 처리 중 오류가 발생했습니다.';
+        
+        return res.status(statusCode).json({ 
+            error: errMsg,
+            details: err.message 
         });
     }
 });
