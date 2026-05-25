@@ -311,12 +311,21 @@ app.delete('/api/posts/:id', async (req, res) => {
 // 게시글 신청 취소 API
 app.post('/api/posts/:id/cancel', async (req, res) => {
     const { id } = req.params;
-    const uid = req.headers['uid'];
+    
+    const uid = req.headers['uid'] || req.body.uid;
+
+    if (!uid) {
+        return res.status(400).json({ success: false, message: 'uid가 누락되었습니다.' });
+    }
 
     try {
-        const response = await axios.post(`${DB_SERVER_URL}/api/posts/${id}/cancel`, {}, {
-            headers: { 'uid': uid }
-        });
+        console.log(`[신청 취소 요청] 글 ID: ${id} | UID: ${uid}`);
+
+        const response = await axios.post(`${DB_SERVER_URL}/api/posts/${id}/cancel`, 
+            { uid: uid },
+            { headers: { 'uid': uid } }
+        );
+        
         return res.json(response.data);
     } catch (err) {
         console.error('신청 취소 에러:', err.message);
