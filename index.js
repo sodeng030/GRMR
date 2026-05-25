@@ -474,6 +474,8 @@ app.get('/api/appointments/active', async (req, res) => {
 
 // 내 상태 변경 API (배너의 준비/출발/도착 버튼 클릭 시)
 app.post('/api/appointments/status', async (req, res) => {
+    console.log(`[배너 상태변경 요청] 채연이가 보낸 데이터:`, req.body);
+
     const { uid, appointmentId, newStatus } = req.body;
 
     if (!uid || !appointmentId || !newStatus) {
@@ -503,7 +505,7 @@ app.post('/api/appointments/status', async (req, res) => {
         res.json({
             success: true,
             message: `상태가 '${newStatus}'(으)로 변경되었습니다.`,
-            data: response.data
+            ...response.data 
         });
 
     } catch (err) {
@@ -514,7 +516,6 @@ app.post('/api/appointments/status', async (req, res) => {
         });
     }
 });
-
 
 // 유저 평가 API
 app.put('/api/user/profile/:targetUid/rating', async (req, res) => {
