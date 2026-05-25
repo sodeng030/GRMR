@@ -496,7 +496,7 @@ app.post('/api/appointments/status', async (req, res) => {
     try {
         const response = await axios.post(`${DB_SERVER_URL}/api/appointments/status`, {
             uid,
-            appointmentId,
+            appointmentId: Number(appointmentId),
             newStatus
         });
 
@@ -516,6 +516,7 @@ app.post('/api/appointments/status', async (req, res) => {
         });
     }
 });
+
 
 // 유저 평가 API
 app.put('/api/user/profile/:targetUid/rating', async (req, res) => {
