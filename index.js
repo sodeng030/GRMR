@@ -340,6 +340,8 @@ app.get('/api/posts', async (req, res) => {
         let posts = postsRes.data;
         const rawGender = userRes.data.gender;
 
+        posts = posts.filter(post => post.state === 'active');
+
         let userGender = 'all';
         if (rawGender === '여') userGender = 'female';
         else if (rawGender === '남') userGender = 'male';
