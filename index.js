@@ -407,28 +407,33 @@ app.get('/api/user/bookmarks', async (req, res) => {
     }
 
     try {
-        console.log(`[보관함 요청] UID: ${uid}, 요청탭: ${state || '전체'}`);
-
-        const dbStateParam = (state === 'joined') ? 'active' : state;
+        console.log(`[보관함 요청 수신] UID: ${uid}, 요청탭: ${state || '전체보기'}`);
 
         const response = await axios.get(`${DB_SERVER_URL}/api/user/bookmarks`, {
-            params: { state: dbStateParam },
             headers: { 'uid': uid }
         });
 
-        let posts = response.data.posts;
+        const allPosts = response.data.posts || [];
+        let finalPosts = [];
 
         if (state === 'active') {
-            posts = posts.filter(post => post.c_uid === uid);
+            finalPosts = allPosts.filter(post => post.state === 'active' && String(post.c_uid) === String(uid));
         } 
         else if (state === 'joined') {
-            posts = posts.filter(post => post.c_uid !== uid);
+            finalPosts = allPosts.filter(post => post.state === 'active' && String(post.c_uid) !== String(uid));
+        } 
+        else if (state === 'completed') {
+            finalPosts = allPosts.filter(post => post.state === 'completed');
+        } 
+        else {
+            finalPosts = allPosts;
         }
 
-        return res.json({ success: true, posts: posts });
+        console.log(`[보관함 필터 완료] 반환 데이터 수: ${finalPosts.length}개`);
+        return res.json({ success: true, posts: finalPosts });
 
     } catch (err) {
-        console.error('보관함 조회 에러:', err.message);
+        console.error('보관함 필터 조회 에러:', err.message);
         const statusCode = err.response?.status || 500;
         const errMsg = err.response?.data?.message || '보관함 목록을 불러오는 중 오류가 발생했습니다.';
         
