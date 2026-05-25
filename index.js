@@ -308,6 +308,24 @@ app.delete('/api/posts/:id', async (req, res) => {
 });
 
 
+// 게시글 신청 취소 API
+app.post('/api/posts/:id/cancel', async (req, res) => {
+    const { id } = req.params;
+    const uid = req.headers['uid'];
+
+    try {
+        const response = await axios.post(`${DB_SERVER_URL}/api/posts/${id}/cancel`, {}, {
+            headers: { 'uid': uid }
+        });
+        return res.json(response.data);
+    } catch (err) {
+        console.error('신청 취소 브릿지 에러:', err.message);
+        const statusCode = err.response?.status || 500;
+        return res.status(statusCode).json({ success: false, message: '신청 취소 실패' });
+    }
+});
+
+
 // 위도/경도로 두 지점 사이의 직선거리 계산 함수
 function getDistance(lat1, lon1, lat2, lon2) {
     const R = 6371;
