@@ -1,24 +1,26 @@
 const passport = require('passport');
 const KakaoStrategy = require('passport-kakao').Strategy;
-const db = require('./db'); // 아까 만든 DB 연결 파일
+const db = require('./db');
 
 passport.use(new KakaoStrategy({
     clientID: process.env.KAKAO_ID,
     callbackURL: process.env.KAKAO_CALLBACK_URL,
 }, async (accessToken, refreshToken, profile, done) => {
     try {
-        // 2주차 설계: kakao_id로 기존 유저인지 확인 
-        const [rows] = await db.query('SELECT * FROM Users WHERE kakao_id = ?', [profile.id]);
+        const kakaoUid = String(profile.id);
+        const [rows] = await db.query('SELECT * FROM users WHERE uid = ?', [kakaoUid]);
         
         if (rows.length > 0) {
             return done(null, rows[0]);
         } else {
-            // 신규 유저라면 DB에 저장 (신뢰 지수 기본값 0.0 반영) 
-            const [result] = await db.query(
-                'INSERT INTO Users (kakao_id, nickname, trust_score) VALUES (?, ?, ?)',
-                [profile.id, profile.username, 0.0]
+            const email = profile._json?.kakao_account?.email || null;
+            const name = profile.username || profile.displayName || '이름없음';
+
+            await db.query(
+                'INSERT INTO users (uid, name, email) VALUES (?, ?, ?)',
+                [kakaoUid, name, email]
             );
-            const [newUser] = await db.query('SELECT * FROM Users WHERE id = ?', [result.insertId]);
+            const [newUser] = await db.query('SELECT * FROM users WHERE uid = ?', [kakaoUid]);
             return done(null, newUser[0]);
         }
     } catch (error) {
