@@ -360,7 +360,10 @@ app.get('/api/posts', async (req, res) => {
         console.log(`[게시글 목록 요청] 필터조건: ${JSON.stringify(queryParams)}, 요청UID: ${uid}`);
 
         const [postsRes, userRes] = await Promise.all([
-            axios.get(`${DB_SERVER_URL}/api/posts`),
+            axios.get(`${DB_SERVER_URL}/api/posts`, {
+                params: { sortBy, genderFirst },
+                headers: { uid }
+            }),
             axios.get(`${DB_SERVER_URL}/api/user/me`, { headers: { uid } })
         ]);
 
@@ -385,12 +388,14 @@ app.get('/api/posts', async (req, res) => {
         }
 
         posts.sort((a, b) => {
-
             if (genderFirst === 'true' || genderFirst === true) {
                 const getGenderScore = (post) => {
-                    if (post.gender_filter === userGender) return 2; 
-                    if (post.gender_filter === '전체') return 1;     
-                    return 0;                                       
+                    if (post.gender_filter === userGender)
+                            return 2;
+                    if (post.gender_filter === '전체' || post.gender_filter === 'all')
+                            return 1;
+                    
+                    return 0;
                 };
 
                 const scoreA = getGenderScore(a);
