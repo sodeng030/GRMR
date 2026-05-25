@@ -418,21 +418,41 @@ app.get('/api/user/bookmarks', async (req, res) => {
 
         const now = new Date(); 
 
+        console.log(`📢 [백엔드 데이터 검증] 예린이가 준 총 데이터 수: ${allPosts.length}개`);
+
         if (state === 'active') {
             finalPosts = allPosts.filter(post => {
-                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                if (!post.date || !post.time) return false;
+                const [year, month, day] = post.date.split('-').map(Number);
+                const [hour, min, sec] = post.time.split(':').map(Number);
+                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
+
+                const isOver = appointmentTime < now;
                 return !isOver && String(post.c_uid) === String(uid);
             });
         } 
         else if (state === 'joined') {
             finalPosts = allPosts.filter(post => {
-                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                if (!post.date || !post.time) return false;
+                const [year, month, day] = post.date.split('-').map(Number);
+                const [hour, min, sec] = post.time.split(':').map(Number);
+                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
+
+                const isOver = appointmentTime < now;
                 return !isOver && String(post.c_uid) !== String(uid);
             });
         } 
         else if (state === 'completed') {
             finalPosts = allPosts.filter(post => {
-                const isOver = new Date(`${post.date} ${post.time}`) < now;
+                if (!post.date || !post.time) return false;
+                const [year, month, day] = post.date.split('-').map(Number);
+                const [hour, min, sec] = post.time.split(':').map(Number);
+                const appointmentTime = new Date(year, month - 1, day, hour, min, sec || 0);
+
+                const isOver = appointmentTime < now;
+                
+                console.log(`[완료 판별] 제목: ${post.title} | 약속시간: ${appointmentTime.toLocaleString()} | 현재시간: ${now.toLocaleString()} -> 만료여부: ${isOver}`);
+                
                 return isOver;
             });
         } 
