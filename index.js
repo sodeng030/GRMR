@@ -225,32 +225,22 @@ app.delete('/api/posts/:id', async (req, res) => {
     }
 
     try {
-        const [post] = await db.query('SELECT uid FROM posts WHERE id = ?', [postId]);
-        
-        if (post.length === 0) {
-            return res.status(404).json({ message: '존재하지 않거나 이미 삭제된 게시글입니다.' });
-        }
+        const response = await axios.delete(`${DB_SERVER_URL}/api/posts/${postId}`, {
+            headers: { 'uid': userUid }
+        });
 
-        if (post[0].uid !== userUid) {
-            console.log(`[권한 오류] 삭제 거부 -> 유저: ${userUid}, 글ID: ${postId}`);
-            return res.status(403).json({ error: '본인이 작성한 글만 삭제할 수 있습니다.' });
-        }
-
-
-        const [result] = await db.query('DELETE FROM posts WHERE id = ?', [postId]);
-
-        if (result.affectedRows > 0) {
-            console.log(`[삭제 성공] 글 ID: ${postId} | 작성자 uid: ${userUid}`);
-            return res.status(200).json({ message: '게시글이 성공적으로 삭제되었습니다.' });
-        } else {
-            return res.status(500).json({ error: '게시글 삭제에 실패했습니다.' });
-        }
+        console.log(`[삭제 연동 성공] 글 ID: ${postId} | 요청자 uid: ${userUid}`);
+        return res.status(200).json(response.data);
 
     } catch (err) {
-        console.error('게시글 삭제 API 에러:', err.message);
-        return res.status(500).json({ 
-            error: '서버 내부 오류로 게시글을 삭제하지 못했습니다.',
-            details: err.message 
+        console.error('게시글 삭제 브릿지 연동 에러:', err.message);
+        
+        const statusCode = err.response?.status || 500;
+        const errMsg = err.response?.data?.error || err.response?.data?.message || 'DB 서버 통신 중 오류가 발생했습니다.';
+        
+        return res.status(statusCode).json({ 
+            error: '게시글을 삭제하지 못했습니다.',
+            details: errMsg 
         });
     }
 });
