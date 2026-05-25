@@ -508,27 +508,29 @@ app.put('/api/user/profile/:targetUid/rating', async (req, res) => {
 
 // 카카오 로그인 및 회원가입 API
 app.post('/api/user/login', async (req, res) => {
-    const { uid, nickname } = req.body;
+    const { uid, nickname, email, gender, birth } = req.body;
 
     if (!uid) {
         return res.status(400).json({ error: '카카오 고유 ID(uid)가 누락되었습니다.' });
     }
 
     try {
-        console.log(`[로그인 요청 수신] uid: ${uid}, nickname: ${nickname}`);
+        console.log(`[로그인 요청 수신] uid: ${uid}, nickname: ${nickname}, email: ${email}, gender: ${gender}, birth: ${birth}`);
 
         const response = await axios.post(`${DB_SERVER_URL}/api/user/login`, {
             uid: uid,
-            nickname: nickname
+            nickname: nickname,
+            email: email,
+            gender: gender, 
+            birth: birth      
         });
 
         return res.status(response.status).json(response.data);
 
     } catch (err) {
-        console.error('카카오 로그인 에러:', err.message);
-        
+        console.error('카카오 로그인 중계 에러:', err.message);
         const statusCode = err.response?.status || 500;
-        const errMsg = err.response?.data?.error || '로그인 처리 중 오류가 발생했습니다.';
+        const errMsg = err.response?.data?.error || '로그인 및 회원가입 처리 중 오류가 발생했습니다.';
         
         return res.status(statusCode).json({ 
             error: errMsg,
