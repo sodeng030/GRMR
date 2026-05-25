@@ -377,13 +377,19 @@ app.get('/api/posts', async (req, res) => {
         posts.sort((a, b) => {
 
             if (genderFirst === 'true' || genderFirst === true) {
-                const aMatch = (a.gender_filter === userGender || a.gender_filter === 'all');
-                const bMatch = (b.gender_filter === userGender || b.gender_filter === 'all');
-                
-                if (aMatch && !bMatch) return -1; 
-                if (!aMatch && bMatch) return 1;  
-            }
+                const getGenderScore = (post) => {
+                    if (post.gender_filter === userGender) return 2;
+                    if (post.gender_filter === 'all') return 1;
+                    return 0;
+                };
 
+                const scoreA = getGenderScore(a);
+                const scoreB = getGenderScore(b);
+
+                if (scoreA !== scoreB) {
+                    return scoreB - scoreA; 
+                }
+            }
 
             if (sortBy === 'time') {
                 const timeA = new Date(`${a.target_date} ${a.target_time}`);
