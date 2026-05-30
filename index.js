@@ -335,7 +335,7 @@ app.post('/api/posts/:id/cancel', async (req, res) => {
 });
 
 
-// 위도/경도로 두 지점 사이의 직선거리 계산 함수
+// 위도/경도로 두 지점 사이의 직선거리 계산 함수 (하버사인)
 function getDistance(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -343,7 +343,8 @@ function getDistance(lat1, lon1, lat2, lon2) {
     
     const a = 
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
     
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c; 
@@ -457,7 +458,7 @@ app.get('/api/user/bookmarks', async (req, res) => {
 
         const now = new Date(); 
 
-        console.log(`📢 [백엔드 데이터 검증] 예린이가 준 총 데이터 수: ${allPosts.length}개`);
+        console.log(`[백엔드 데이터 검증] 예린이가 준 총 데이터 수: ${allPosts.length}개`);
 
         const dynamicStatePosts = allPosts.map(post => {
             if (!post.date || !post.time) return post;
@@ -534,46 +535,105 @@ app.get('/api/appointments/active', async (req, res) => {
 
 // 내 상태 변경 API (배너의 준비/출발/도착 버튼 클릭 시)
 app.post('/api/appointments/status', async (req, res) => {
-    console.log(`[배너 상태변경 요청] 채연이가 보낸 데이터:`, req.body);
+    console.log(`[GPS 수신 및 FSM 상태 검사] 데이터:`, req.body);
 
-    const { uid, appointmentId, newStatus } = req.body;
+    const { uid, appointmentId, lat, lng, action } = req.body;
 
-    if (!uid || !appointmentId || !newStatus) {
-        return res.status(400).json({ 
-            error: '필수 데이터가 누락되었습니다.', 
-            details: '{ uid, appointmentId, newStatus }가 모두 필요합니다.' 
-        });
-    }
-
-    const validStatuses = ['ready', 'departure', 'arrival']; // 준비, 출발, 도착
-    if (!validStatuses.includes(newStatus)) {
-        return res.status(400).json({ 
-            error: '잘못된 상태값입니다.', 
-            details: 'ready, departure, arrival 중 하나여야 합니다.' 
-        });
+    if (!uid || !appointmentId || lat === undefined || lng === undefined) {
+        return res.status(400).json({ error: '필수 데이터(uid, appointmentId, lat, lng)가 누락되었습니다.' });
     }
 
     try {
-        const response = await axios.post(`${DB_SERVER_URL}/api/appointments/status`, {
-            uid,
-            appointmentId: Number(appointmentId),
-            newStatus
+        const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/user-status`, {
+            params: { uid, appointmentId }
         });
 
-        console.log(`[상태 변경 성공] UID: ${uid} | AppID: ${appointmentId} | Status: ${newStatus}`);
+        const { 
+            state,              // 기존 상태 (e.g., 'ready', 'moving' 등)
+            base_distance,      // 기존에 고정된 초기 거리
+            destLat,            // 약속 장소 위도
+            destLng             // 약속 장소 경도
+        } = dbResponse.data;
+
+        const currentDistance = getDistance(lat, lng, destLat, destLng);
         
-        res.json({
+        let newStatus = state;
+        let baseDistanceToSave = base_distance;
+
+        if (action === 'start') {
+            baseDistanceToSave = currentDistance;
+            
+            if (baseDistanceToSave <= 0.6) {
+                newStatus = 'moving';
+            } else {
+                newStatus = 'ready';
+            }
+        } else {
+            if (!base_distance) {
+                return res.status(400).json({ error: '일정이 시작되지 않아 고정된 base_distance 값이 없습니다.' });
+            }
+
+            switch (state) {
+                case 'ready':
+                    if (currentDistance <= base_distance * 0.75) {
+                        newStatus = 'moving';
+                    }
+                    break;
+
+                case 'moving':
+                    if (currentDistance <= 0.1) {
+                        newStatus = 'arrival';
+                    }
+                    break;
+
+                case 'arrival':
+                    if (currentDistance > 0.3) {
+                        newStatus = 'away';
+                    }
+                    break;
+
+                case 'away':
+                    if (currentDistance <= 0.1) {
+                        newStatus = 'arrival';
+                    } 
+                    else if (currentDistance > 0.6) {
+                        newStatus = 'moving';
+                    }
+                    break;
+            }
+        }
+
+        if (newStatus !== state || action === 'start') {
+            await axios.post(`${DB_SERVER_URL}/api/appointments/update-fsm`, {
+                uid,
+                appointmentId,
+                newStatus,
+                mValue: baseDistanceToSave
+            });
+            
+            console.log(`[FSM 전이 발생] ${state} ➔ ${newStatus} (거리: ${currentDistance.toFixed(3)}km)`);
+            
+            return res.json({
+                success: true,
+                statusChanged: true,
+                previousStatus: state,
+                newStatus,
+                currentDistance: currentDistance.toFixed(3),
+                savedM: baseDistanceToSave
+            });
+        }
+
+        return res.json({
             success: true,
-            message: `상태가 '${newStatus}'(으)로 변경되었습니다.`,
-            ...response.data 
+            statusChanged: false,
+            newStatus,
+            currentDistance: currentDistance.toFixed(3),
+            savedM: baseDistanceToSave
         });
 
     } catch (err) {
-        console.error('상태 변경 중 연동 에러:', err.message);
-        res.status(500).json({ 
-            error: '상태 업데이트 실패', 
-            details: err.response?.data?.message || 'DB 서버 연결에 문제가 발생했습니다.' 
-        });
+        console.error('FSM 상태 변경 처리 중 에러:', err.message);
+        res.status(500).json({ error: 'FSM 인프라 내부 에러', details: err.message });
     }
 });
 
