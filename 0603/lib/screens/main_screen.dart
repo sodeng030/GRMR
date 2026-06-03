@@ -1,0 +1,671 @@
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:developer';
+import 'dart:async';
+import 'package:geolocator/geolocator.dart';
+
+import '../config/app_config.dart';
+import '../models/app_colors.dart';
+import '../models/post_item.dart';
+import '../components/bottom_bar.dart';
+import '../components/top_status_banner.dart';
+import '../screens/location_selection_screen.dart';
+
+import 'add_screen.dart';
+import 'detail_screen.dart';
+
+Timer? _statusTimer;
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  final List<String> _category = ['취미', '식사', '동행'];
+
+  final Color tabHobbyColor = const Color(0xFFFFC943);
+  final Color tabMealColor = const Color(0xFFFFAC4B);
+  final Color tabCompanionColor = const Color(0xFFFF8E52);
+
+  bool _hasActiveMeeting = false;
+  String _activeAppointmentId = '';
+  String _meetingTitle = '';
+  int _minutesLeft = 0;
+  int _distanceMeter = 0;
+  int _arrivalCount = 0;
+  int _departureCount = 0;
+  int _readyCount = 0;
+
+  double? _currentLat;
+  double? _currentLng;
+  double? _meetingLat; 
+  double? _meetingLng;
+
+  List<PostItem> allPosts = [];
+  bool isLoading = true;
+
+  String _sortBy = 'time';
+  bool _genderFirst = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initLocationAndFetch();
+    _fetchActiveStatus();
+
+    _statusTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _refreshCurrentLocation();
+      _fetchActiveStatus();
+    });
+  }
+
+  // 실제 휴대폰 GPS 위치를 받아오는 함수
+  Future<void> _refreshCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+        Position position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        );
+        setState(() {
+          _currentLat = position.latitude;
+          _currentLng = position.longitude;
+        });
+        log('🛰 [GPS 실시간 갱신 완료] 내 위치 위도: $_currentLat, 경도: $_currentLng');
+      }
+    } catch (e) {
+      log('❌ GPS 위치를 가져오는데 실패했습니다: $e');
+    }
+  }
+
+  // 초기화 시 GPS 구동 후 백엔드 통신 실행
+  Future<void> _initLocationAndFetch() async {
+    await _refreshCurrentLocation();
+    _fetchPosts();
+    _fetchActiveStatus();
+  }
+
+  Future<void> _fetchPosts() async {
+    setState(() => isLoading = true);
+    try {
+      String url = '${AppConfig.baseUrl}/api/posts?sortBy=$_sortBy&genderFirst=$_genderFirst';
+
+      if (_sortBy == 'distance' && _currentLat != null && _currentLng != null) {
+        url += '&lat=$_currentLat&lng=$_currentLng';
+      }
+
+      log('📡 [API 요청] URL: $url');
+      log('📍 [필터 상태] 거리순: ${_sortBy == 'distance' ? "ON🟢" : "OFF⚪"} | 동성우선: ${_genderFirst ? "ON🟢" : "OFF⚪"}');
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'uid': AppConfig.currentUserUid}, 
+      );
+
+      if (response.statusCode == 200) {
+        List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        log('📦 [응답 성공] 총 ${data.length}개의 게시글 로드 완료!');
+        
+        log('📋 ====== 👀 정렬 결과 리스트 확인 ======');
+        for (int i = 0; i < data.length; i++) {
+          final postJson = data[i];
+          final title = postJson['title'] ?? '제목 없음';
+          final destination = postJson['destination'] ?? '목적지 없음';
+          
+          final distance = postJson['calculated_distance'];
+          
+          if (distance != null) {
+            double distKm = double.parse(distance.toString());
+            int distMeter = (distKm * 1000).round();
+            log('  [$i등] 제목: $title | 목적지: $destination | 🧭 거리: ${distMeter}m (${distKm.toStringAsFixed(2)}km)');
+          } else {
+            log('  [$i등] 제목: $title | 목적지: $destination (거리 데이터 없음)');
+          }
+        }
+        log('=======================================');
+
+        setState(() {
+          allPosts = data.map((json) => PostItem.fromJson(json)).toList();
+          isLoading = false;
+        });
+      } else {
+        log('⚠️ [게시글 로드 실패] 상태 코드: ${response.statusCode}');
+        if (_genderFirst) log('💡 [힌트] 동성 우선 필터를 켰을 때 에러가 발생했습니다.');
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      log('💥 [네트워크 에러] 원인: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  // 약속 상태 가져오기
+  Future<void> _fetchActiveStatus() async {
+    if (AppConfig.currentUserUid.isEmpty) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/api/appointments/active'),
+        headers: {'uid': AppConfig.currentUserUid},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        
+        final int minutesLeft = data['minutesLeft'] ?? 0;
+        
+        setState(() {
+          _hasActiveMeeting = (data['hasActiveMeeting'] ?? false) && minutesLeft > 0;
+          _activeAppointmentId = data['id']?.toString() ?? data['appointmentId']?.toString() ?? '';
+          _meetingTitle = data['title'] ?? '약속 정보 없음';
+          _minutesLeft = minutesLeft;
+          _distanceMeter = data['distanceMeter'] ?? 0;
+          _arrivalCount = data['arrivalCount'] ?? 0;
+          _departureCount = data['departureCount'] ?? 0;
+          _readyCount = data['readyCount'] ?? 0;
+
+          if (data['lat'] != null) {
+            _meetingLat = double.tryParse(data['lat'].toString());
+          } else if (data['latitude'] != null) {
+            _meetingLat = double.tryParse(data['latitude'].toString());
+          }
+
+          if (data['lng'] != null) {
+            _meetingLng = double.tryParse(data['lng'].toString());
+          } else if (data['longitude'] != null) {
+            _meetingLng = double.tryParse(data['longitude'].toString());
+          }
+        });
+      }
+    } catch (e) {
+      log('배너 데이터 로딩 에러: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+            _buildTopBanner(),
+            const SizedBox(height: 30),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned(top: 0, left: 0, right: 0, child: _buildTabs()),
+                  Positioned(
+                    top: 65,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: AppColors.background,
+                      ),
+                      child: Column(
+                        children: [
+                          _buildSubHeader(context),
+                          Expanded(
+                            child: isLoading
+                                ? const Center(child: CircularProgressIndicator())
+                                : _buildListView(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: const CustomBottomNavBar(currentIndex: 1), 
+    );
+  }
+
+  Widget _buildTopBanner() {
+    return TopStatusBanner(
+      hasMeeting: _hasActiveMeeting,
+      appointmentId: _activeAppointmentId,
+      title: _meetingTitle,
+      minutesLeft: _minutesLeft,
+      distanceMeter: _distanceMeter,
+      arrivalCount: _arrivalCount,
+      departureCount: _departureCount,
+      readyCount: _readyCount,
+
+      targetLat: _meetingLat,
+      targetLng: _meetingLng,
+      myLat: _currentLat,
+      myLng: _currentLng,
+    );
+  }
+
+  Widget _buildTabs() {
+    return Row(
+      children: [
+        _buildTabItem(index: 0, title: '취미', bgColor: tabHobbyColor),
+        _buildTabItem(index: 1, title: '식사', bgColor: tabMealColor),
+        _buildTabItem(index: 2, title: '동행', bgColor: tabCompanionColor),
+      ],
+    );
+  }
+
+  Widget _buildTabItem({
+    required int index,
+    required String title,
+    required Color bgColor,
+  }) {
+    bool isSelected = _selectedIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedIndex = index),
+        child: Container(
+          height: 120,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(44),
+          ),
+          child: Stack(
+            children: [
+              if (!isSelected)
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(44),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withAlpha(217),
+                        Colors.white.withAlpha(0),
+                      ],
+                    ),
+                  ),
+                ),
+              Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 15),
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: isSelected 
+                          ? AppColors.textMain 
+                          : AppColors.textMain.withAlpha(102),
+                      fontSize: 32,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AddScreen(currentCategory: _category[_selectedIndex]),
+                ),
+              );
+              if (result == true) {
+                _fetchPosts();
+              }
+            },
+            child: const Icon(Icons.add, size: 36, color: AppColors.textMain),
+          ),
+          const Spacer(),
+          const SizedBox(width: 15),
+
+          GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                barrierColor: Colors.black.withValues(alpha: 0.3),
+                builder: (context) => FilterDialog(
+                  initialSortBy: _sortBy, 
+                  initialGenderFirst: _genderFirst,
+                  initialLat: _currentLat,
+                  initialLng: _currentLng,
+
+                  onFilterApplied: (String newSortBy, bool newGenderFirst, double? newLat, double? newLng) {
+                    setState(() {
+                      _sortBy = newSortBy;
+                      _genderFirst = newGenderFirst;
+                      _currentLat = newLat;
+                      _currentLng = newLng;
+                    });
+                    
+                    _fetchPosts(); 
+                  },
+                ),
+              );
+            },
+            child: const Icon(Icons.tune, size: 32, color: AppColors.textMain),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildListView() {
+    String currentCategory = _category[_selectedIndex];
+    List<PostItem> filteredPosts = allPosts
+        .where((post) => post.category == currentCategory)
+        .toList();
+
+    if (filteredPosts.isEmpty) {
+      return Center(
+        child: Text(
+          '등록된 글이 없어요.',
+          style: TextStyle(
+            color: AppColors.textMain.withAlpha(128),
+            fontSize: 20,
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 10, bottom: 20),
+      itemCount: filteredPosts.length,
+      itemBuilder: (context, index) {
+        final post = filteredPosts[index];
+        return _buildListItem(post);
+      },
+    );
+  }
+
+  Widget _buildListItem(PostItem post) {
+    String displayLocation = post.category == '동행'
+        ? '${post.location} -> ${post.destination}'
+        : post.destination;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => DetailScreen(post: post)),
+        ).then((_) => _fetchPosts());
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(23),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x3F000000),
+              blurRadius: 4,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  post.title,
+                  style: const TextStyle(
+                    color: AppColors.textMain,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  ' (${post.now_count}/${post.max_count})',
+                  style: const TextStyle(
+                    color: AppColors.textMain,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${post.date} ${post.time}\n$displayLocation',
+              style: const TextStyle(
+                color: AppColors.textMain,
+                fontSize: 18,
+                fontWeight: FontWeight.w400,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FilterDialog extends StatefulWidget {
+  final String initialSortBy;
+  final bool initialGenderFirst;
+  final double? initialLat;
+  final double? initialLng;
+  final Function(String sortBy, bool genderFirst, double? lat, double? lng) onFilterApplied;
+
+  const FilterDialog({
+    super.key,
+    required this.initialSortBy,
+    required this.initialGenderFirst,
+    this.initialLat,
+    this.initialLng,
+    required this.onFilterApplied,
+  });
+
+  @override
+  State<FilterDialog> createState() => _FilterDialogState();
+}
+
+class _FilterDialogState extends State<FilterDialog> {
+  late bool _isTimeSort;
+  late bool _isDistanceSort;
+  late bool _isGenderSort;
+  double? _selectedLat;
+  double? _selectedLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _isTimeSort = widget.initialSortBy == 'time';
+    _isDistanceSort = widget.initialSortBy == 'distance';
+    _isGenderSort = widget.initialGenderFirst;
+    _selectedLat = widget.initialLat;
+    _selectedLng = widget.initialLng;
+  }
+  
+  // 시간순 토글
+  void _toggleTimeSort(bool val) {
+    setState(() {
+      _isTimeSort = val;
+      if (val) _isDistanceSort = false;
+    });
+    _applyFilters();
+  }
+
+  // 거리순 토글
+  Future<void> _toggleDistanceSort(bool val) async {
+    if (val) {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const LocationSelectionScreen(),
+        ),
+      );
+
+      if (result != null && result is Map<String, double>) {
+        setState(() {
+          _selectedLat = result['lat'];
+          _selectedLng = result['lng'];
+          
+          _isDistanceSort = true;
+          _isTimeSort = false;
+        });
+        _applyFilters();
+      } else {
+        setState(() {
+          if (_selectedLat != null) {
+            _isDistanceSort = true;
+            _isTimeSort = false;
+            _applyFilters();
+          } else {
+            _isDistanceSort = false; 
+          }
+        });
+      }
+    } else {
+      setState(() {
+        _isDistanceSort = false;
+      });
+      _applyFilters();
+    }
+  }
+
+  // 성별 토글
+  void _toggleGenderSort(bool val) {
+    log('🔘 [필터 조작] 동성 전용 필터 스위치: ${val ? "켜짐(ON)" : "꺼짐(OFF)"}');
+    
+    setState(() => _isGenderSort = val);
+    _applyFilters();
+  }
+
+  void _applyFilters() {
+    String sortBy = '';
+    if (_isTimeSort) { sortBy = 'time'; }
+    else if (_isDistanceSort) { sortBy = 'distance'; }
+    
+    widget.onFilterApplied(sortBy, _isGenderSort, _selectedLat, _selectedLng);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 335,
+        padding: const EdgeInsets.symmetric(horizontal: 37, vertical: 43),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.95), 
+          borderRadius: BorderRadius.circular(23),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('시간순', style: _titleStyle),
+                _buildCustomSwitch(_isTimeSort, _toggleTimeSort),
+              ],
+            ),
+            const SizedBox(height: 35),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('거리순', style: _titleStyle),
+                    Text(
+                      '기준 위치 설정하기',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 15,
+                        fontFamily: 'Paperlogy',
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+                _buildCustomSwitch(_isDistanceSort, (val) => _toggleDistanceSort(val)),
+              ],
+            ),
+            const SizedBox(height: 35),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('성별 우선', style: _titleStyle),
+                _buildCustomSwitch(_isGenderSort, _toggleGenderSort),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const TextStyle _titleStyle = TextStyle(
+    color: Color(0xFF331F07), fontSize: 36, fontFamily: 'Paperlogy', fontWeight: FontWeight.w400, height: 1.2,
+  );
+
+  Widget _buildCustomSwitch(bool value, Function(bool) onChanged) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 70, height: 35,
+        decoration: BoxDecoration(
+          color: value ? const Color(0xFFFFAC4B) : const Color(0xFFE0E0E0), 
+          borderRadius: BorderRadius.circular(27),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              left: value ? 35 : 5, 
+              child: Container(
+                width: 29, height: 28,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFDD89), shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Color(0x3F000000), blurRadius: 3, offset: Offset(0, 3))],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

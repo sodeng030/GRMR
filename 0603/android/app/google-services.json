@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "584756386654",
+    "project_id": "goornot-108fa",
+    "storage_bucket": "goornot-108fa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:584756386654:android:3e65fa886251b4dc554dcf",
+        "android_client_info": {
+          "package_name": "com.example.goornot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDRfN8z77kF3FOXwRoWnFP3V7CNC6amTHs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
