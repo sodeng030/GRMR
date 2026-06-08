@@ -33,28 +33,56 @@ app.get('/api/user/profile/:uid', async (req, res) => {
     
     try {
         const response = await axios.get(`${DB_SERVER_URL}/api/user/me`, {
-            headers: {
-                'uid': uid,
-            }
+            headers: { 'uid': uid }
         });
-        
+
         const dbData = response.data; 
         
-        const colorKey = dbData.color || dbData.current_color;
+        let finalColorCode = colorPalette['yellow']; 
+
+        try {
+            const appResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/active`, {
+                headers: { 'uid': uid }
+            });
+            const appointment = appResponse.data;
+
+            if (appointment && appointment.hasActiveMeeting) {
+                if (uid === appointment.c_uid) {
+                    finalColorCode = colorPalette['red'];
+                } else if (uid === appointment.a1_uid) {
+                    finalColorCode = colorPalette['orange'];
+                } else if (uid === appointment.a2_uid) {
+                    finalColorCode = colorPalette['yellow']; 
+                } else if (uid === appointment.a3_uid) {
+                    finalColorCode = colorPalette['green']; 
+                }
+            } else {
+                const colorKey = dbData.current_color || dbData.color;
+                if (colorKey && colorPalette[colorKey]) {
+                    finalColorCode = colorPalette[colorKey];
+                }
+            }
+        } catch (appErr) {
+            console.warn(`[프로필 색상] 약속 데이터 대조 실패, 기본 컬러 유지:`, appErr.message);
+            const colorKey = dbData.current_color || dbData.color;
+            if (colorKey && colorPalette[colorKey]) {
+                finalColorCode = colorPalette[colorKey];
+            }
+        }
 
         const processedData = {
             ...dbData,
-            colorCode: colorPalette[colorKey] || '#C7DA80'
+            colorCode: finalColorCode
         };
 
-        console.log(`[헤더인증 연동] UID ${uid} 데이터 수신 성공`);
+        console.log(`[프로필 동적 색상 매칭 완료] UID: ${uid} | Color: ${finalColorCode}`);
         res.json(processedData);
 
     } catch (err) {
-        console.error('연결 에러:', err.message);
+        console.error('프로필 화면 조회 에러:', err.message);
         res.status(500).json({ 
             error: 'DB 서버 연동 실패', 
-            details: 'DB 서버에서 해당 UID의 헤더를 읽지 못했을 수 있습니다.' 
+            details: err.message 
         });
     }
 });
@@ -520,7 +548,33 @@ app.get('/api/appointments/active', async (req, res) => {
         });
         
         console.log(`[배너 조회 연동 성공] UID: ${uid}`);
-        return res.json(response.data);
+        const appointmentData = response.data; 
+
+        if (appointmentData && appointmentData.members) {
+            let readyCount = 0;
+            let movingCount = 0;
+            let arrivalCount = 0;
+            let awayCount = 0;
+
+            appointmentData.members.forEach(member => {
+                switch (member.state) {
+                    case 'ready': readyCount++; break;
+                    case 'moving': movingCount++; break;
+                    case 'arrival': arrivalCount++; break;
+                    case 'away': awayCount++; break;
+                }
+            });
+
+            return res.json({
+                ...appointmentData,
+                readyCount,
+                movingCount,
+                arrivalCount,
+                awayCount
+            });
+        }
+        
+        return res.json(appointmentData);
 
     } catch (err) {
         console.error('배너 정보 조회 실패:', err.message);
