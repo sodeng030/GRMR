@@ -13,10 +13,10 @@ const DB_SERVER_URL = 'http://localhost:3000';
 
 // 프로필 색상코드
 const colorPalette = {
-    'red': '#F6796E',
-    'orange': '#FFAA46',
-    'yellow': '#FFD66D',
-    'green': '#C7DA80'
+    'red': '0xFFF6796E',
+    'orange': '0xFFFFAA46',
+    'yellow': '0xFFFFD66D',
+    'green': '0xFFC7DA80'
 };
 
 
