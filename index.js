@@ -673,8 +673,8 @@ io.on('connection', (socket) => {
                     fsmCooldownMap.set(cooldownKey, now);
                 }
 
-                await axios.post(`${DB_SERVER_URL}/api/appointments/update-fsm`, {
-                    uid, appointmentId, newStatus, mValue: baseDistanceToSave
+                await axios.post(`${DB_SERVER_URL}/api/appointments/status`, {
+                    uid, appointmentId, newStatus, base_distance: baseDistanceToSave
                 });
                 console.log(`[Socket FSM 전이 발생] ${state} ➔ ${newStatus} (거리: ${currentDistance.toFixed(3)}km)`);
             }
@@ -809,11 +809,11 @@ app.post('/api/appointments/status', async (req, res) => {
                 fsmCooldownMap.set(cooldownKey, now);
             }
 
-            await axios.post(`${DB_SERVER_URL}/api/appointments/update-fsm`, {
+            await axios.post(`${DB_SERVER_URL}/api/appointments/status`, {
                 uid,
                 appointmentId,
                 newStatus,
-                mValue: baseDistanceToSave
+                base_distance: baseDistanceToSave
             });
             
             console.log(`[FSM 전이 발생] ${state} ➔ ${newStatus} (거리: ${currentDistance.toFixed(3)}km)`);
