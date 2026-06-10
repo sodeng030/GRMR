@@ -620,7 +620,7 @@ io.on('connection', (socket) => {
         }
 
         try {
-            const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/user-status`, {
+            const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/info`, {
                 params: { uid, appointmentId }
             });
 
@@ -731,7 +731,7 @@ app.post('/api/appointments/status', async (req, res) => {
     }
 
     try {
-        const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/user-status`, {
+        const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/info`, {
             params: { uid, appointmentId }
         });
 
