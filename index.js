@@ -601,134 +601,115 @@ app.get('/api/appointments/active', async (req, res) => {
 
 
 // 실시간 GPS 수신 및 FSM 처리
-socket.on('update_status', async (data) => {
-    console.log(`[Socket 수신 - update_status]:`, data);
-    const { uid, appointmentId, lat, lng, action } = data;
+io.on('connection', (socket) => {
+    console.log(`[Socket] 새 클라이언트 연결됨: ${socket.id}`);
+    
+    socket.on('join_appointment', ({ uid, appointmentId }) => {
+        if (!appointmentId) return;
+        socket.join(String(appointmentId));
+        console.log(`[Socket] 유저 ${uid} ➔ 약속방 ${appointmentId} 조인 완료`);
+    });
 
-    if (!uid || !appointmentId || lat === undefined || lng === undefined) {
-        console.error('[Socket 에러] 필수 누락 데이터 발생');
-        return;
-    }
+    socket.on('update_status', async (data) => {
+        console.log(`[Socket 수신 - update_status]:`, data);
+        const { uid, appointmentId, lat, lng, action } = data;
 
-    try {
-        const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/user-status`, {
-            params: { uid, appointmentId }
-        });
+        if (!uid || !appointmentId || lat === undefined || lng === undefined) {
+            console.error('[Socket 에러] 필수 누락 데이터 발생');
+            return;
+        }
 
-        const { 
-            state,             
-            base_distance,     
-            destLat,            
-            destLng             
-        } = dbResponse.data;
+        try {
+            const dbResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/user-status`, {
+                params: { uid, appointmentId }
+            });
 
-        const currentDistance = getDistance(lat, lng, destLat, destLng);
-        
-        let newStatus = state;
-        let baseDistanceToSave = base_distance;
-
-        if (action === 'start') {
-            baseDistanceToSave = currentDistance;
+            const { state, base_distance, destLat, destLng } = dbResponse.data;
+            const currentDistance = getDistance(lat, lng, destLat, destLng);
             
-            if (baseDistanceToSave <= 0.6) {
-                newStatus = 'moving';
+            let newStatus = state;
+            let baseDistanceToSave = base_distance;
+
+            if (action === 'start') {
+                baseDistanceToSave = currentDistance;
+                if (baseDistanceToSave <= 0.6) {
+                    newStatus = 'moving';
+                } else {
+                    newStatus = 'ready';
+                }
             } else {
-                newStatus = 'ready';
-            }
-        } else {
-            if (!base_distance) return; 
+                if (!base_distance) return; 
 
-            switch (state) {
-                case 'ready':
-                    if (currentDistance <= base_distance * 0.75) {
-                        newStatus = 'moving';
-                    }
-                    break;
-
-                case 'moving':
-                    if (currentDistance <= 0.1) {
-                        newStatus = 'arrival';
-                    }
-                    break;
-
-                case 'arrival':
-                    if (currentDistance > 0.3) {
-                        newStatus = 'away';
-                    }
-                    break;
-
-                case 'away':
-                    if (currentDistance <= 0.1) {
-                        newStatus = 'arrival';
-                    } 
-                    else if (currentDistance > 0.6) {
-                        newStatus = 'moving';
-                    }
-                    break;
-            }
-        }
-
-        if (newStatus !== state || action === 'start') {
-
-            if (action !== 'start') {
-                const cooldownKey = `${uid}_${appointmentId}`;
-                const lastChange = fsmCooldownMap.get(cooldownKey) || 0;
-                const now = Date.now();
-
-                if (now - lastChange < FSM_COOLDOWN_TIME) {
-                    console.log(`[소켓 FSM 차단] 유저 ${uid} - 과도한 단시간 상태 전이 시도 방어 (남은 시간: ${((FSM_COOLDOWN_TIME - (now - lastChange)) / 1000).toFixed(1)}초)`);
-                    return;
+                switch (state) {
+                    case 'ready':
+                        if (currentDistance <= base_distance * 0.75) newStatus = 'moving';
+                        break;
+                    case 'moving':
+                        if (currentDistance <= 0.1) newStatus = 'arrival';
+                        break;
+                    case 'arrival':
+                        if (currentDistance > 0.3) newStatus = 'away';
+                        break;
+                    case 'away':
+                        if (currentDistance <= 0.1) {
+                            newStatus = 'arrival';
+                        } else if (currentDistance > 0.6) {
+                            newStatus = 'moving';
+                        }
+                        break;
                 }
-                
-                fsmCooldownMap.set(cooldownKey, now);
             }
 
-            await axios.post(`${DB_SERVER_URL}/api/appointments/update-fsm`, {
-                uid,
-                appointmentId,
-                newStatus,
-                mValue: baseDistanceToSave
-            });
-            
-            console.log(`[Socket FSM 전이 발생] ${state} ➔ ${newStatus} (거리: ${currentDistance.toFixed(3)}km)`);
-        }
+            if (newStatus !== state || action === 'start') {
+                if (action !== 'start') {
+                    const cooldownKey = `${uid}_${appointmentId}`;
+                    const lastChange = fsmCooldownMap.get(cooldownKey) || 0;
+                    const now = Date.now();
 
-        const activeAppResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/active`, {
-            headers: { 'uid': uid }
-        });
-        const appointmentData = activeAppResponse.data;
-
-        if (appointmentData && appointmentData.members) {
-            let readyCount = 0;
-            let movingCount = 0;
-            let arrivalCount = 0;
-            let awayCount = 0;
-
-            appointmentData.members.forEach(member => {
-                switch (member.state) {
-                    case 'ready': readyCount++; break;
-                    case 'moving': movingCount++; break;
-                    case 'arrival': arrivalCount++; break;
-                    case 'away': awayCount++; break;
+                    if (now - lastChange < FSM_COOLDOWN_TIME) {
+                        console.log(`[소켓 FSM 차단] 유저 ${uid} - 과도한 상태 전이 시도 방어`);
+                        return;
+                    }
+                    fsmCooldownMap.set(cooldownKey, now);
                 }
-            });
 
-            io.to(String(appointmentId)).emit('status_updated', {
-                uid,
-                newStatus,
-                currentDistance: currentDistance.toFixed(3),
-                readyCount,
-                movingCount,
-                arrivalCount,
-                awayCount
+                await axios.post(`${DB_SERVER_URL}/api/appointments/update-fsm`, {
+                    uid, appointmentId, newStatus, mValue: baseDistanceToSave
+                });
+                console.log(`[Socket FSM 전이 발생] ${state} ➔ ${newStatus} (거리: ${currentDistance.toFixed(3)}km)`);
+            }
+
+            const activeAppResponse = await axios.get(`${DB_SERVER_URL}/api/appointments/active`, {
+                headers: { 'uid': uid }
             });
-            
-            console.log(`[Socket 송신 - status_updated] 방 ${appointmentId} 공유 완료 -> ready:${readyCount}, moving:${movingCount}`);
+            const appointmentData = activeAppResponse.data;
+
+            if (appointmentData && appointmentData.members) {
+                let readyCount = 0; let movingCount = 0; let arrivalCount = 0; let awayCount = 0;
+
+                appointmentData.members.forEach(member => {
+                    switch (member.state) {
+                        case 'ready': readyCount++; break;
+                        case 'moving': movingCount++; break;
+                        case 'arrival': arrivalCount++; break;
+                        case 'away': awayCount++; break;
+                    }
+                });
+
+                io.to(String(appointmentId)).emit('status_updated', {
+                    uid, newStatus, currentDistance: currentDistance.toFixed(3),
+                    readyCount, movingCount, arrivalCount, awayCount
+                });
+                console.log(`[Socket 송신] 방 ${appointmentId} 공유 완료 -> ready:${readyCount}, moving:${movingCount}`);
+            }
+        } catch (err) {
+            console.error('[Socket FSM 처리 중 내부 에러]:', err.message);
         }
+    });
 
-    } catch (err) {
-        console.error('[Socket FSM 처리 중 내부 에러]:', err.message);
-    }
+    socket.on('disconnect', () => {
+        console.log(`[Socket] 클라이언트 연결 해제: ${socket.id}`);
+    });
 });
 
 // 내 상태 변경 API (배너의 준비/출발/도착 버튼 클릭 시)
