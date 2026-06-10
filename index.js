@@ -703,7 +703,15 @@ io.on('connection', (socket) => {
                 console.log(`[Socket 송신] 방 ${appointmentId} 공유 완료 -> ready:${readyCount}, moving:${movingCount}`);
             }
         } catch (err) {
-            console.error('[Socket FSM 처리 중 내부 에러]:', err.message);
+            console.error('\n[Socket FSM 404 에러 상세 분석]');
+            console.error(`프론트에서 소켓으로 보낸 ID:`, data.appointmentId);
+            
+            if (err.response) {
+                console.error(`DB 서버의 404 응답 메시지:`, err.response.data);
+            } else {
+                console.error(`에러 메시지:`, err.message);
+            }
+            console.error('---------------------------------\n');
         }
     });
 
