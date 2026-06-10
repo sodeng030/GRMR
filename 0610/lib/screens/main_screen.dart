@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import '../config/app_config.dart';
 import '../models/app_colors.dart';
@@ -58,25 +59,112 @@ class _MainScreenState extends State<MainScreen> {
   String _sortBy = 'time';
   bool _genderFirst = false;
 
+  // 소켓
+  IO.Socket? _socket;
+
+  // GPS 갱신 타이머 (소켓 emit용, 15초)
   Timer? _locationTimer;
-  Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
     _initLocationAndFetch();
-    _fetchActiveStatus();
+    _fetchActiveStatus(); // 초기 1회 HTTP 호출은 유지
+  }
 
-    // 15초마다 GPS 갱신
-    _locationTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      await _refreshCurrentLocation();
+  // ───────────── 소켓 ─────────────
+
+  void _connectSocket() {
+    if (_socket != null) return; // 이미 연결된 경우 중복 방지
+
+    _socket = IO.io(
+      AppConfig.baseUrl,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .disableAutoConnect()
+          .build(),
+    );
+
+    _socket!.connect();
+
+    _socket!.onConnect((_) {
+      log('[Socket] 연결 완료: ${_socket!.id}');
+      // 약속 방에 조인
+      _socket!.emit('join_appointment', {
+        'uid': AppConfig.currentUserUid,
+        'appointmentId': _activeAppointmentId,
+      });
+      log('[Socket] join_appointment 전송: $_activeAppointmentId');
+
+      // 연결 직후 GPS 위치를 즉시 한 번 emit
+      _emitLocationUpdate();
+
+      // 15초마다 GPS emit 시작
+      _locationTimer?.cancel();
+      _locationTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+        _emitLocationUpdate();
+      });
     });
 
-    // 60초마다 약속 기본 정보 갱신
-    _statusTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-      _fetchActiveStatus();
+    // 서버에서 status_updated 이벤트 수신
+    _socket!.on('status_updated', (data) {
+      if (!mounted) return;
+      setState(() {
+        _arrivalCount = data['arrivalCount'] ?? _arrivalCount;
+        _movingCount  = data['movingCount']  ?? _movingCount;
+        _readyCount   = data['readyCount']   ?? _readyCount;
+        _awayCount    = data['awayCount']    ?? _awayCount;
+        if (data['minutesLeft'] != null) {           // 추가
+          _minutesLeft = data['minutesLeft'];         // 추가
+        }
+        if (data['currentDistance'] != null) {
+          final double distKm = double.tryParse(data['currentDistance'].toString()) ?? 0;
+          _distanceMeter = (distKm * 1000).round();
+        }
+      });
+    });
+
+    _socket!.onDisconnect((_) {
+      log('[Socket] 연결 해제됨');
+      _locationTimer?.cancel();
+    });
+
+    _socket!.onConnectError((err) {
+      log('[Socket] 연결 에러: $err');
     });
   }
+
+  void _disconnectSocket() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
+    log('[Socket] 소켓 해제 완료');
+  }
+
+  // GPS 위치를 소켓으로 emit
+  Future<void> _emitLocationUpdate({String? action}) async {
+    if (_socket == null || !(_socket!.connected)) return;
+    if (_activeAppointmentId.isEmpty) return;
+
+    await _refreshCurrentLocation();
+
+    if (_currentLat == null || _currentLng == null) return;
+
+    final payload = {
+      'uid': AppConfig.currentUserUid,
+      'appointmentId': _activeAppointmentId,
+      'lat': _currentLat,
+      'lng': _currentLng,
+      if (action != null) 'action': action,
+    };
+
+    _socket!.emit('update_status', payload);
+    log('[Socket 송신 - update_status]: $payload');
+  }
+
+  // ───────────── GPS ─────────────
 
   Future<void> _refreshCurrentLocation() async {
     try {
@@ -110,9 +198,13 @@ class _MainScreenState extends State<MainScreen> {
     _fetchActiveStatus();
   }
 
+  // ───────────── 배너 콜백 ─────────────
+
   // 배너에서 일정 시작 버튼 눌렀을 때 콜백
   void _onMeetingStarted() {
     setState(() => _isStarted = true);
+    // 'start' action으로 소켓 emit → 서버에서 base_distance 저장
+    _emitLocationUpdate(action: 'start');
   }
 
   // ───────────── HTTP ─────────────
@@ -172,6 +264,8 @@ class _MainScreenState extends State<MainScreen> {
         final String appointmentId =
             data['id']?.toString() ?? data['appointmentId']?.toString() ?? '';
 
+        final bool appointmentChanged = appointmentId != _activeAppointmentId;
+
         setState(() {
           _hasActiveMeeting = hasMeeting;
           _activeAppointmentId = appointmentId;
@@ -204,16 +298,27 @@ class _MainScreenState extends State<MainScreen> {
             _isStarted = false;
           }
         });
+
+        // 약속이 있고, appointmentId가 새로 생겼거나 바뀐 경우 소켓 연결/재연결
+        if (hasMeeting && appointmentId.isNotEmpty) {
+          if (appointmentChanged || _socket == null || !(_socket!.connected)) {
+            _disconnectSocket();
+            _connectSocket();
+          }
+        } else {
+          // 약속이 없으면 소켓 해제
+          _disconnectSocket();
+        }
       }
     } catch (e) {
       log('배너 데이터 로딩 에러: $e');
     }
   }
 
+  // 변경 후
   @override
   void dispose() {
-    _locationTimer?.cancel();
-    _statusTimer?.cancel();
+    _disconnectSocket();
     super.dispose();
   }
 

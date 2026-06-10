@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-enum MeetingStatus { ready, moving, arrived, away }
-
-class TopStatusBanner extends StatefulWidget {
+class TopStatusBanner extends StatelessWidget {
   final bool hasMeeting;
   final String title;
   final int minutesLeft;
@@ -41,47 +39,6 @@ class TopStatusBanner extends StatefulWidget {
     required this.onMeetingStarted,
   });
 
-  @override
-  State<TopStatusBanner> createState() => _TopStatusBannerState();
-}
-
-class _TopStatusBannerState extends State<TopStatusBanner> {
-  MeetingStatus _myStatus = MeetingStatus.ready;
-
-  @override
-  void didUpdateWidget(covariant TopStatusBanner oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (widget.isStarted && widget.distanceMeter != oldWidget.distanceMeter) {
-      _updateMyStatusFromDistance(widget.distanceMeter);
-    }
-  }
-
-  void _updateMyStatusFromDistance(int distanceMeter) {
-    final double distKm = distanceMeter / 1000.0;
-    MeetingStatus next = _myStatus;
-
-    switch (_myStatus) {
-      case MeetingStatus.ready:
-        if (distKm <= 0.6) next = MeetingStatus.moving;
-        break;
-      case MeetingStatus.moving:
-        if (distKm <= 0.1) next = MeetingStatus.arrived;
-        break;
-      case MeetingStatus.arrived:
-        if (distKm > 0.3) next = MeetingStatus.away;
-        break;
-      case MeetingStatus.away:
-        if (distKm <= 0.1) next = MeetingStatus.arrived;
-        else if (distKm > 0.6) next = MeetingStatus.moving;
-        break;
-    }
-
-    if (next != _myStatus) {
-      setState(() => _myStatus = next);
-    }
-  }
-
   int _calculateDistanceInMeters(
       double lat1, double lng1, double lat2, double lng2) {
     const double earthRadius = 6371000;
@@ -99,17 +56,15 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
   double _degToRad(double deg) => deg * (math.pi / 180);
 
   int _getDisplayDistance() {
-    // 시작 전이든 후든 GPS 좌표가 있으면 직접 계산
-    if (widget.myLat != null &&
-        widget.myLng != null &&
-        widget.targetLat != null &&
-        widget.targetLng != null) {
+    if (myLat != null &&
+        myLng != null &&
+        targetLat != null &&
+        targetLng != null) {
       return _calculateDistanceInMeters(
-        widget.myLat!, widget.myLng!,
-        widget.targetLat!, widget.targetLng!,
+        myLat!, myLng!, targetLat!, targetLng!,
       );
     }
-    return widget.distanceMeter;
+    return distanceMeter;
   }
 
   String _getFormattedTime(int totalMinutes) {
@@ -122,25 +77,12 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
     return '$minutes분';
   }
 
-  String _getStatusText() {
-    switch (_myStatus) {
-      case MeetingStatus.ready:
-        return '준비';
-      case MeetingStatus.moving:
-        return '이동';
-      case MeetingStatus.arrived:
-        return '도착';
-      case MeetingStatus.away:
-        return '이탈';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        if (widget.hasMeeting && !widget.isStarted) {
-          _showStartDialog();
+        if (hasMeeting && !isStarted) {
+          _showStartDialog(context);
         }
       },
       child: Container(
@@ -155,14 +97,12 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
                 color: Color(0x3F000000), blurRadius: 4, offset: Offset(0, 5)),
           ],
         ),
-        child: widget.hasMeeting
-            ? _buildActiveMeetingView()
-            : _buildNoMeetingView(),
+        child: hasMeeting ? _buildActiveMeetingView() : _buildNoMeetingView(),
       ),
     );
   }
 
-  void _showStartDialog() {
+  void _showStartDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -186,7 +126,7 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              widget.onMeetingStarted();
+              onMeetingStarted();
             },
             child: const Text(
               '시작',
@@ -206,7 +146,7 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
     String distanceText = displayDistance >= 1000
         ? '${(displayDistance / 1000).toStringAsFixed(1)}km'
         : '${displayDistance}m';
-    String timeText = _getFormattedTime(widget.minutesLeft);
+    String timeText = _getFormattedTime(minutesLeft);
 
     return Center(
       child: Padding(
@@ -217,7 +157,7 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
             TextSpan(
               children: [
                 TextSpan(
-                  text: '${widget.title}\n',
+                  text: '$title\n',
                   style: const TextStyle(
                     color: Colors.black,
                     fontSize: 28,
@@ -230,9 +170,7 @@ class _TopStatusBannerState extends State<TopStatusBanner> {
                   style: TextStyle(fontSize: 5),
                 ),
                 TextSpan(
-                  text: widget.isStarted
-                      ? '약속까지 $timeText\n장소까지 $distanceText\n내 상태 : ${_getStatusText()}\n도착(${widget.arrivalCount})  이동(${widget.movingCount})  준비(${widget.readyCount})  이탈(${widget.awayCount})'
-                      : '약속까지 $timeText\n장소까지 $distanceText\n도착(${widget.arrivalCount})  이동(${widget.movingCount})  준비(${widget.readyCount})  이탈(${widget.awayCount})',
+                  text: '약속까지 $timeText\n장소까지 $distanceText\n도착(${arrivalCount})  이동(${movingCount})  준비(${readyCount})  이탈(${awayCount})',
                   style: const TextStyle(
                     color: Colors.black,
                     fontSize: 20,
