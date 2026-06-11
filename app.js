@@ -41,8 +41,8 @@ io.on('connection', (socket) => {
             
             let newStatus = action || 'moving';
 
-            await db.query("UPDATE users SET state = ?, base_distance = COALESCE(?, base_distance) WHERE uid = ?", 
-                [newStatus, null, uid]);
+            await db.query("UPDATE users SET state = ? ...", [newStatus, base_distance || null, uid]);
+
 
             // 카운트 집계
             const [posts] = await db.query(
@@ -234,12 +234,22 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
 
     try {
         const [posts] = await db.query(
-            "SELECT a1_uid, a2_uid, a3_uid, now_count, max_count FROM posts WHERE id = ?",
+            "SELECT a1_uid, a2_uid, a3_uid, now_count, max_count, gender_filter FROM posts WHERE id = ?",
             [post_id]
         );
         if (posts.length === 0) return res.status(404).json({ message: "게시글을 찾을 수 없습니다." });
 
         const post = posts[0];
+
+        // 동성 전용 체크 추가
+        if (post.gender_filter && post.gender_filter !== 'all') {
+            const [users] = await db.query("SELECT gender FROM users WHERE uid = ?", [uid]);
+            if (users.length === 0) return res.status(404).json({ message: "유저를 찾을 수 없습니다." });
+            if (users[0].gender !== post.gender_filter) {
+                return res.status(403).json({ message: "동성 전용 게시글입니다." });
+            }
+        }
+
         if (post.now_count >= post.max_count) {
             return res.status(400).json({ message: "이미 정원이 가득 찼습니다." });
         }
@@ -255,7 +265,6 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
             [uid, post_id]
         );
 
-        // appointmentId 배열에 post_id 추가
         const [users] = await db.query("SELECT appointmentId FROM users WHERE uid = ?", [uid]);
         let appointmentIds = [];
         if (users[0].appointmentId) {
@@ -495,8 +504,8 @@ app.get('/api/appointments/active', async (req, res) => {
             FROM posts p
             WHERE p.state = 'active'
             AND (p.c_uid = ? OR p.a1_uid = ? OR p.a2_uid = ? OR p.a3_uid = ?)
-            AND TIMESTAMP(p.target_date, p.target_time) > DATE_SUB(NOW(), INTERVAL 60 MINUTE)
-            ORDER BY p.target_date ASC, p.target_time ASC
+            AND TIMESTAMP(p.target_date, p.target_time) > NOW()
+            ORDER BY ABS(TIMESTAMPDIFF(MINUTE, NOW(), TIMESTAMP(p.target_date, p.target_time))) ASC
             LIMIT 1
         `, [uid, uid, uid, uid]);
 
@@ -546,9 +555,10 @@ app.post('/api/appointments/status', async (req, res) => {
 
     // 영어 → 한글 변환
     const statusMap = {
-        'ready': '준비',
-        'departure': '출발',
-        'arrival': '도착'
+        'ready': 'ready',
+        'moving': 'moving',
+        'arrival': 'arrival',
+        'away': 'away'
     };
 
     const koreanStatus = statusMap[newStatus];
