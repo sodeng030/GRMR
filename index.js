@@ -265,6 +265,20 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
     }
 
     try {
+        const [postsRes, userRes] = await Promise.all([
+            axios.get(`${DB_SERVER_URL}/api/posts/${post_id}`),
+            axios.get(`${DB_SERVER_URL}/api/user/me`, { headers: { uid } })
+        ]);
+
+        const post = postsRes.data;
+        const userGender = userRes.data.gender;
+
+        if (post.gender_filter !== 'all' && post.gender_filter !== userGender) {
+            return res.status(403).json({
+                error: '동성 전용 게시글입니다.'
+            });
+        }
+
         const response = await axios.post(`${DB_SERVER_URL}/api/posts/${post_id}/join`, {
             uid: uid
         });
@@ -550,25 +564,17 @@ app.get('/api/user/bookmarks', async (req, res) => {
 // 현재 진행 중인 약속 조회 (상단 배너용)
 app.get('/api/appointments/active', async (req, res) => {
     const uid = req.headers['uid'];
-
-    if (!uid) {
-        return res.status(401).json({ error: '인증 정보(uid)가 필요합니다.' });
-    }
+    if (!uid) return res.status(401).json({ error: '인증 정보(uid)가 필요합니다.' });
 
     try {
         const response = await axios.get(`${DB_SERVER_URL}/api/appointments/active`, {
             headers: { 'uid': uid }
         });
-        
-        console.log(`[배너 조회 연동 성공] UID: ${uid}`);
+
         const appointmentData = response.data; 
 
         if (appointmentData && appointmentData.members) {
-            let readyCount = 0;
-            let movingCount = 0;
-            let arrivalCount = 0;
-            let awayCount = 0;
-
+            let readyCount = 0; let movingCount = 0; let arrivalCount = 0; let awayCount = 0;
             appointmentData.members.forEach(member => {
                 switch (member.state) {
                     case 'ready': readyCount++; break;
@@ -578,24 +584,18 @@ app.get('/api/appointments/active', async (req, res) => {
                 }
             });
 
+            const appointmentTime = new Date(`${appointmentData.target_date} ${appointmentData.target_time}`);
+            const minutesLeft = Math.max(0, Math.floor((appointmentTime - new Date()) / 60000));
+
             return res.json({
                 ...appointmentData,
-                readyCount,
-                movingCount,
-                arrivalCount,
-                awayCount
+                readyCount, movingCount, arrivalCount, awayCount,
+                minutesLeft
             });
         }
-        
         return res.json(appointmentData);
-
     } catch (err) {
-        console.error('배너 정보 조회 실패:', err.message);
-        const statusCode = err.response?.status || 500;
-        return res.status(statusCode).json({ 
-            error: '배너 데이터를 가져오지 못했습니다.',
-            details: err.response?.data || err.message 
-        });
+        return res.status(500).json({ error: '배너 조회 실패' });
     }
 });
 
@@ -696,11 +696,18 @@ io.on('connection', (socket) => {
                     }
                 });
 
+                const appointmentTime = new Date(`${appointmentData.target_date} ${appointmentData.target_time}`);
+                const minutesLeft = Math.floor((appointmentTime - new Date()) / 60000);
+
                 io.to(String(appointmentId)).emit('status_updated', {
-                    uid, newStatus, currentDistance: currentDistance.toFixed(3),
-                    readyCount, movingCount, arrivalCount, awayCount
+                    uid, 
+                    newStatus, 
+                    currentDistance: currentDistance.toFixed(3),
+                    readyCount, movingCount, arrivalCount, awayCount,
+                    minutesLeft
                 });
-                console.log(`[Socket 송신] 방 ${appointmentId} 공유 완료 -> ready:${readyCount}, moving:${movingCount}`);
+                
+                console.log(`[Socket 송신] 방 ${appointmentId} 공유 완료 -> ready:${readyCount}, minutesLeft:${minutesLeft}`);
             }
         } catch (err) {
             console.error('\n[Socket FSM 404 에러 상세 분석]');
