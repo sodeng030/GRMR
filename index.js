@@ -584,8 +584,7 @@ app.get('/api/appointments/active', async (req, res) => {
                 }
             });
 
-            const appointmentTime = new Date(`${appointmentData.target_date} ${appointmentData.target_time}`);
-            const minutesLeft = Math.max(0, Math.floor((appointmentTime - new Date()) / 60000));
+            const minutesLeft = appointmentData.minutesLeft ?? 0;
 
             return res.json({
                 ...appointmentData,
