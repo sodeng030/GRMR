@@ -33,6 +33,8 @@ io.on('connection', (socket) => {
         console.log(`[소켓] ${uid}가 약속방 ${appointmentId} 입장`);
     });
 
+
+
     // 상태 업데이트
     socket.on('update_status', async ({ uid, appointmentId, lat, lng, action }) => {
         try {
@@ -227,6 +229,20 @@ app.get('/api/posts', async (req, res) => {
     }
 });
 
+// [단일 게시글 조회]
+app.get('/api/posts/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [posts] = await db.query(
+            `SELECT * FROM posts WHERE id = ?`, [id]
+        );
+        if (posts.length === 0) return res.status(404).json({ message: '게시글을 찾을 수 없습니다.' });
+        res.json(posts[0]);
+    } catch (error) {
+        res.status(500).json({ success: false, message: '서버 에러' });
+    }
+});
+
 // [3. 참여신청 API]
 app.post('/api/posts/:post_id/join', async (req, res) => {
     const { post_id } = req.params;
@@ -241,7 +257,7 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
 
         const post = posts[0];
 
-        // 동성 전용 체크 추가
+        // 동성 전용 체크
         if (post.gender_filter && post.gender_filter !== 'all') {
             const [users] = await db.query("SELECT gender FROM users WHERE uid = ?", [uid]);
             if (users.length === 0) return res.status(404).json({ message: "유저를 찾을 수 없습니다." });
@@ -275,6 +291,12 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
         }
         await db.query("UPDATE users SET appointmentId = ? WHERE uid = ?", [JSON.stringify(appointmentIds), uid]);
 
+        // 새 약속 참여 시 state 초기화
+        await db.query(
+            "UPDATE users SET state = NULL, base_distance = NULL WHERE uid = ?",
+            [uid]
+        );
+
         res.json({ success: true, message: `${updateColumn} 자리에 등록 완료!` });
     } catch (error) {
         console.error(error);
@@ -285,7 +307,7 @@ app.post('/api/posts/:post_id/join', async (req, res) => {
 // [참여 취소 API]
 app.post('/api/posts/:post_id/cancel', async (req, res) => {
     const { post_id } = req.params;
-    const { uid } = req.body;
+    const uid = req.body.uid || req.headers['uid'];
 
     try {
         const [posts] = await db.query(
@@ -299,14 +321,13 @@ app.post('/api/posts/:post_id/cancel', async (req, res) => {
         if (post.a1_uid === uid) updateColumn = "a1_uid";
         else if (post.a2_uid === uid) updateColumn = "a2_uid";
         else if (post.a3_uid === uid) updateColumn = "a3_uid";
-        else return res.status(400).json({ message: "참여 중인 게시글이 아닙니다." });
+        else return res.status(404).json({ message: "참여 중인 게시글이 아닙니다." });
 
         await db.query(
             `UPDATE posts SET ${updateColumn} = NULL, now_count = now_count - 1 WHERE id = ?`,
             [post_id]
         );
 
-        // appointmentId 배열에서 post_id 제거
         const [users] = await db.query("SELECT appointmentId FROM users WHERE uid = ?", [uid]);
         let appointmentIds = [];
         if (users[0].appointmentId) {
@@ -321,6 +342,7 @@ app.post('/api/posts/:post_id/cancel', async (req, res) => {
         res.status(500).json({ success: false, message: "취소 처리 중 오류 발생" });
     }
 });
+
 
 // [4. 프로필 태그 수정]
 app.put('/api/user/profile/tags', async (req, res) => {
@@ -514,6 +536,17 @@ app.get('/api/appointments/active', async (req, res) => {
         }
 
         const post = posts[0];
+
+	const [userRow] = await db.query(
+	    "SELECT current_appointment_id FROM users WHERE uid = ?", [uid]
+	);
+	if (userRow[0].current_appointment_id !== post.id) {
+    	    await db.query(
+                "UPDATE users SET state = NULL, current_appointment_id = ? WHERE uid = ?",
+                [post.id, uid]
+    	    );
+	}
+
         const participantUids = [post.c_uid, post.a1_uid, post.a2_uid, post.a3_uid].filter(u => u);
         const [participants] = await db.query(
             `SELECT uid, name, state FROM users WHERE uid IN (?)`,
@@ -679,7 +712,7 @@ app.post('/api/users/states', async (req, res) => {
         );
 
         const result = {};
-        uids.forEach(uid => { result[uid] = 'ready'; }); // 기본값 ready
+        uids.forEach(uid => { result[uid] = null; }); // 기본값 null로 변경
         users.forEach(user => { result[user.uid] = user.state || 'ready'; });
 
         res.json(result);
